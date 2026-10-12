@@ -1,0 +1,135 @@
+en,vi,domain,category,note,keep_original,gloss_first,priority
+myocardial infarction,nhồi máu cơ tim,general_medicine,disease,,0,0,60
+acute coronary syndrome,hội chứng vành cấp,general_medicine,disease,,0,0,60
+heart failure,suy tim,general_medicine,disease,,0,0,60
+atrial fibrillation,rung nhĩ,general_medicine,disease,,0,0,60
+hypertension,tăng huyết áp,general_medicine,disease,Không dùng 'cao huyết áp' trong văn phong chuyên môn,0,0,60
+hypotension,hạ huyết áp,general_medicine,disease,,0,0,60
+stroke,đột quỵ,general_medicine,disease,,0,0,55
+ischemic stroke,đột quỵ thiếu máu não,general_medicine,disease,,0,0,60
+transient ischemic attack,cơn thiếu máu não thoáng qua,general_medicine,disease,,0,0,60
+diabetes mellitus,đái tháo đường,general_medicine,disease,Không dùng 'tiểu đường' trong văn phong chuyên môn,0,0,60
+type 2 diabetes,đái tháo đường típ 2,general_medicine,disease,,0,0,60
+type 1 diabetes,đái tháo đường típ 1,general_medicine,disease,,0,0,60
+chronic kidney disease,bệnh thận mạn,general_medicine,disease,,0,0,60
+acute kidney injury,tổn thương thận cấp,general_medicine,disease,,0,0,60
+chronic obstructive pulmonary disease,bệnh phổi tắc nghẽn mạn tính,general_medicine,disease,,0,0,60
+asthma,hen phế quản,general_medicine,disease,,0,0,55
+pneumonia,viêm phổi,general_medicine,disease,,0,0,55
+community-acquired pneumonia,viêm phổi mắc phải tại cộng đồng,general_medicine,disease,,0,0,60
+sepsis,nhiễm khuẩn huyết,general_medicine,disease,Theo Sepsis-3; septic shock = sốc nhiễm khuẩn,0,0,60
+septic shock,sốc nhiễm khuẩn,general_medicine,disease,,0,0,60
+pulmonary embolism,thuyên tắc phổi,general_medicine,disease,,0,0,60
+deep vein thrombosis,huyết khối tĩnh mạch sâu,general_medicine,disease,,0,0,60
+cirrhosis,xơ gan,general_medicine,disease,,0,0,55
+hepatitis,viêm gan,general_medicine,disease,,0,0,55
+anemia,thiếu máu,general_medicine,disease,,0,0,55
+iron deficiency anemia,thiếu máu thiếu sắt,general_medicine,disease,,0,0,60
+tuberculosis,lao,general_medicine,disease,,0,0,55
+malignancy,bệnh lý ác tính,general_medicine,disease,,0,0,50
+metastasis,di căn,general_medicine,disease,,0,0,55
+dyspnea,khó thở,general_medicine,symptom,,0,0,55
+chest pain,đau ngực,general_medicine,symptom,,0,0,55
+syncope,ngất,general_medicine,symptom,,0,0,55
+edema,phù,general_medicine,symptom,,0,0,55
+fever,sốt,general_medicine,symptom,,0,0,50
+fatigue,mệt mỏi,general_medicine,symptom,,0,0,50
+nausea,buồn nôn,general_medicine,symptom,,0,0,50
+vomiting,nôn,general_medicine,symptom,,0,0,50
+palpitations,hồi hộp đánh trống ngực,general_medicine,symptom,,0,0,55
+left ventricle,thất trái,general_medicine,anatomy,,0,0,55
+right ventricle,thất phải,general_medicine,anatomy,,0,0,55
+left atrium,nhĩ trái,general_medicine,anatomy,,0,0,55
+coronary artery,động mạch vành,general_medicine,anatomy,,0,0,55
+aorta,động mạch chủ,general_medicine,anatomy,,0,0,55
+kidney,thận,general_medicine,anatomy,,0,0,40
+liver,gan,general_medicine,anatomy,,0,0,40
+ejection fraction,phân suất tống máu,general_medicine,physiology,,0,0,60
+left ventricular ejection fraction,phân suất tống máu thất trái,general_medicine,physiology,,0,0,65
+cardiac output,cung lượng tim,general_medicine,physiology,,0,0,60
+blood pressure,huyết áp,general_medicine,physiology,,0,0,50
+heart rate,tần số tim,general_medicine,physiology,,0,0,55
+respiratory rate,tần số thở,general_medicine,physiology,,0,0,55
+oxygen saturation,độ bão hoà oxy,general_medicine,physiology,,0,0,55
+glomerular filtration rate,mức lọc cầu thận,general_medicine,physiology,,0,0,60
+estimated glomerular filtration rate,mức lọc cầu thận ước tính,general_medicine,physiology,,0,0,65
+creatinine clearance,độ thanh thải creatinin,general_medicine,lab,,0,0,60
+serum creatinine,creatinin huyết thanh,general_medicine,lab,,0,0,60
+complete blood count,công thức máu,general_medicine,lab,,0,0,55
+hemoglobin,hemoglobin,general_medicine,lab,Có thể ghi huyết sắc tố trong văn bản phổ thông,0,0,50
+platelet count,số lượng tiểu cầu,general_medicine,lab,,0,0,55
+white blood cell count,số lượng bạch cầu,general_medicine,lab,,0,0,55
+troponin,troponin,general_medicine,lab,,0,0,50
+electrocardiogram,điện tâm đồ,general_medicine,procedure,,0,0,60
+echocardiography,siêu âm tim,general_medicine,procedure,,0,0,60
+computed tomography,chụp cắt lớp vi tính,general_medicine,procedure,,0,0,60
+magnetic resonance imaging,chụp cộng hưởng từ,general_medicine,procedure,,0,0,60
+chest radiograph,phim X quang ngực,general_medicine,procedure,,0,0,55
+biopsy,sinh thiết,general_medicine,procedure,,0,0,55
+percutaneous coronary intervention,can thiệp động mạch vành qua da,general_medicine,procedure,,0,0,65
+coronary artery bypass grafting,phẫu thuật bắc cầu chủ vành,general_medicine,procedure,,0,0,65
+mechanical ventilation,thở máy,general_medicine,procedure,,0,0,55
+cardiopulmonary resuscitation,hồi sinh tim phổi,general_medicine,procedure,,0,0,60
+hemodialysis,lọc máu chu kỳ,general_medicine,procedure,Có thể dùng 'thận nhân tạo' tuỳ ngữ cảnh,0,0,55
+randomized controlled trial,thử nghiệm ngẫu nhiên có đối chứng,general_medicine,statistics,,0,0,65
+meta-analysis,phân tích gộp,general_medicine,statistics,,0,0,60
+systematic review,tổng quan hệ thống,general_medicine,statistics,,0,0,60
+cohort study,nghiên cứu thuần tập,general_medicine,statistics,,0,0,60
+case-control study,nghiên cứu bệnh – chứng,general_medicine,statistics,,0,0,60
+confidence interval,khoảng tin cậy,general_medicine,statistics,,0,0,60
+odds ratio,tỉ số chênh,general_medicine,statistics,,0,0,60
+hazard ratio,tỉ số nguy cơ,general_medicine,statistics,,0,0,60
+relative risk,nguy cơ tương đối,general_medicine,statistics,,0,0,60
+standard deviation,độ lệch chuẩn,general_medicine,statistics,,0,0,60
+sensitivity,độ nhạy,general_medicine,statistics,Nghĩa thống kê/chẩn đoán; dị ứng thuốc dùng 'quá mẫn',0,0,40
+specificity,độ đặc hiệu,general_medicine,statistics,,0,0,55
+mortality,tử vong,general_medicine,statistics,all-cause mortality = tử vong do mọi nguyên nhân,0,0,45
+morbidity,bệnh suất,general_medicine,statistics,,0,0,50
+incidence,tỉ lệ mới mắc,general_medicine,statistics,,0,0,55
+prevalence,tỉ lệ hiện mắc,general_medicine,statistics,,0,0,55
+adverse event,biến cố bất lợi,general_medicine,statistics,,0,0,60
+side effect,tác dụng không mong muốn,general_medicine,drug,,0,0,55
+contraindication,chống chỉ định,general_medicine,drug,,0,0,60
+indication,chỉ định,general_medicine,drug,,0,0,50
+loading dose,liều nạp,general_medicine,drug,,0,0,60
+maintenance dose,liều duy trì,general_medicine,drug,,0,0,60
+half-life,thời gian bán thải,general_medicine,drug,,0,0,60
+bioavailability,sinh khả dụng,general_medicine,drug,,0,0,60
+anticoagulant,thuốc chống đông,general_medicine,drug,,0,0,55
+antiplatelet,thuốc chống kết tập tiểu cầu,general_medicine,drug,,0,0,55
+beta-blocker,thuốc chẹn beta,general_medicine,drug,,0,0,60
+ACE inhibitor,thuốc ức chế men chuyển,general_medicine,drug,,0,0,60
+angiotensin receptor blocker,thuốc chẹn thụ thể angiotensin,general_medicine,drug,,0,0,60
+diuretic,thuốc lợi tiểu,general_medicine,drug,,0,0,55
+statin,statin,general_medicine,drug,,0,0,50
+proton pump inhibitor,thuốc ức chế bơm proton,general_medicine,drug,,0,0,60
+nonsteroidal anti-inflammatory drug,thuốc chống viêm không steroid,general_medicine,drug,,0,0,60
+acetaminophen,paracetamol,general_medicine,drug,Tên dùng tại Việt Nam,0,0,60
+epinephrine,adrenalin,general_medicine,drug,Theo Dược thư Quốc gia,0,0,60
+norepinephrine,noradrenalin,general_medicine,drug,Theo Dược thư Quốc gia,0,0,60
+amoxicillin,amoxicilin,general_medicine,drug,Theo Dược thư Quốc gia,0,0,60
+ceftriaxone,ceftriaxon,general_medicine,drug,Theo Dược thư Quốc gia,0,0,60
+vancomycin,vancomycin,general_medicine,drug,,0,0,50
+heparin,heparin,general_medicine,drug,,0,0,50
+low-molecular-weight heparin,heparin trọng lượng phân tử thấp,general_medicine,drug,,0,0,60
+warfarin,warfarin,general_medicine,drug,,0,0,50
+aspirin,aspirin,general_medicine,drug,,0,0,50
+insulin,insulin,general_medicine,drug,,0,0,50
+metformin,metformin,general_medicine,drug,,0,0,50
+furosemide,furosemid,general_medicine,drug,Theo Dược thư Quốc gia,0,0,60
+morphine,morphin,general_medicine,drug,Theo Dược thư Quốc gia,0,0,60
+intravenous,tiêm tĩnh mạch,general_medicine,drug,Tuỳ ngữ cảnh: truyền tĩnh mạch / đường tĩnh mạch,0,0,45
+intramuscular,tiêm bắp,general_medicine,drug,,0,0,50
+subcutaneous,tiêm dưới da,general_medicine,drug,,0,0,50
+emergency department,khoa cấp cứu,general_medicine,other,,0,0,55
+intensive care unit,đơn vị hồi sức tích cực,general_medicine,other,,0,0,60
+primary care,chăm sóc ban đầu,general_medicine,other,,0,0,55
+guideline,khuyến cáo,general_medicine,other,clinical practice guideline = hướng dẫn thực hành lâm sàng,0,0,40
+clinical practice guideline,hướng dẫn thực hành lâm sàng,general_medicine,other,,0,0,60
+World Health Organization,Tổ chức Y tế Thế giới,general_medicine,other,,0,0,60
+et al.,và cs.,general_medicine,other,,0,0,40
+ECG,ECG,general_medicine,abbreviation,Điện tâm đồ; lần đầu ghi 'điện tâm đồ (ECG)',1,0,40
+MRI,MRI,general_medicine,abbreviation,Chụp cộng hưởng từ,1,0,40
+CT,CT,general_medicine,abbreviation,Chụp cắt lớp vi tính,1,0,40
+COPD,COPD,general_medicine,abbreviation,Bệnh phổi tắc nghẽn mạn tính,1,0,40
+HbA1c,HbA1c,general_medicine,lab,Hemoglobin gắn glucose,1,0,40

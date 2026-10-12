@@ -1,0 +1,153 @@
+# ===================================================================
+#  NGUYÊN TẮC GIỮ NGUYÊN / CHUYỂN ĐỔI khi dịch y khoa Anh → Việt
+#  File này được chương trình đọc trực tiếp: vừa đưa vào prompt cho AI,
+#  vừa dùng để KIỂM TRA TỰ ĐỘNG sau khi dịch.
+#  Bạn có thể sửa / thêm quy tắc. Giải thích chi tiết: docs/NGUYEN_TAC_GIU_NGUYEN.md
+# ===================================================================
+
+# ---- NHÓM A: Thay bằng mã giữ chỗ ⟦n⟧ trước khi gửi AI, khôi phục nguyên văn sau khi dịch
+#      (AI không thể làm sai vì không nhìn thấy nội dung)
+protect:
+  - name: url
+    pattern: '(?:https?://|www\.)[^\s<>()\[\]]+[^\s<>()\[\].,;:]'
+  - name: email
+    pattern: '[\w.+-]+@[\w-]+\.[\w.-]+'
+  - name: doi
+    pattern: '\b(?:doi:\s*|https?://doi\.org/)?10\.\d{4,9}/[^\s]+[^\s.,;]'
+  - name: isbn_pmid_nct
+    pattern: '\b(?:ISBN(?:-1[03])?:?\s*[\d\-X ]{10,17}|PMID:?\s*\d{5,9}|PMCID:?\s*PMC\d+|NCT\d{8})\b'
+
+# ---- NHÓM B: AI phải giữ NGUYÊN VĂN trong bản dịch (được kiểm tra tự động sau dịch)
+must_keep:
+  - name: acronym
+    description: Chữ viết tắt in hoa (ECG, MRI, COPD, HIV). Lần đầu có thể ghi kèm nghĩa tiếng Việt.
+    pattern: '\b[A-Z][A-Z0-9]{1,}(?:-[A-Z0-9]+)*s?\b'
+  - name: gene_lab_symbol
+    description: Ký hiệu gen, protein, xét nghiệm, dấu ấn (BRCA1, HbA1c, CD4+, HER2, IL-6, TNF-α)
+    pattern: '\b(?=[A-Za-z0-9\-]*\d)(?=[A-Za-z0-9\-]*[A-Z])[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9α-ω]+)*[+\-]?(?![\w])'
+  - name: tnm_stage
+    description: Phân loại TNM (T2N0M0, pT1a)
+    pattern: '\b[pcy]?T[0-4isx][a-d]?N[0-3x][a-c]?M[01x][a-c]?\b'
+  - name: icd_code
+    description: Mã ICD-10 / ATC
+    pattern: '\b[A-TV-Z]\d{2}(?:\.\d{1,2})\b'
+  - name: citation
+    description: Trích dẫn tài liệu tham khảo dạng [12], [3-5], [1,4]
+    pattern: '\[\d+(?:\s*[-–,]\s*\d+)*\]'
+  - name: chemical
+    description: Công thức hoá học (NaHCO3, CO2, Ca2+, H2O2)
+    pattern: '\b(?:[A-Z][a-z]?\d*){2,}[+\-]?(?![\w])'
+  - name: gene_italic_species
+    description: Tên khoa học sinh vật (Staphylococcus aureus) – kiểm tra theo chữ nghiêng trong PDF
+    pattern: '\b[A-Z][a-z]+ (?:[a-z]+)\b'
+    only_italic: true
+
+# Chữ viết tắt KHÔNG cần giữ nguyên (sẽ dịch) – tránh báo lỗi giả
+must_keep_exceptions:
+  - I
+  - A
+  - II
+  - III
+  - IV
+  - V
+  - VI
+  - VII
+  - VIII
+  - IX
+  - X
+  - AND
+  - THE
+  - NOT
+  - NO
+  - FIGURE
+  - TABLE
+  - CHAPTER
+  - BOX
+  - NOTE
+  - SUMMARY
+  - INTRODUCTION
+  - CONCLUSION
+  - CONCLUSIONS
+  - REFERENCES
+  - KEY
+  - POINTS
+  - CASE
+  - STUDY
+  - US
+  - UK
+  - USA
+
+# ---- NHÓM C: Đơn vị đo – giữ ký hiệu quốc tế, KHÔNG dịch, KHÔNG đổi đơn vị
+units:
+  - mg
+  - g
+  - kg
+  - µg
+  - μg
+  - mcg
+  - ng
+  - pg
+  - mL
+  - ml
+  - L
+  - dL
+  - dl
+  - µL
+  - mmol
+  - µmol
+  - nmol
+  - mol
+  - mEq
+  - IU
+  - UI
+  - U
+  - mmHg
+  - cmH2O
+  - kPa
+  - bpm
+  - "%"
+  - "°C"
+  - "℃"
+  - cm
+  - mm
+  - µm
+  - m
+  - m2
+  - "m²"
+  - Hz
+  - Gy
+  - cGy
+  - mSv
+  - mGy
+  - kcal
+  - cal
+  - Da
+  - kDa
+  - mg/kg
+  - mg/dL
+  - mmol/L
+  - g/dL
+  - g/L
+  - mL/min
+  - mL/kg
+  - µg/kg/min
+  - U/L
+  - IU/L
+  - mOsm/kg
+
+# ---- NHÓM D: Chuyển đổi theo quy ước (AI làm, chương trình kiểm tra một phần)
+conventions:
+  - "Figure n → Hình n; Table n → Bảng n; Chapter n → Chương n; Box n → Khung n; Section → Mục; Appendix → Phụ lục."
+  - "Số hiệu chương/mục/hình/bảng giữ dấu chấm như bản gốc: Figure 3.1 → Hình 3.1; Section 2.4.1 → Mục 2.4.1 (không đổi thành dấu phẩy)."
+  - "et al. → và cs. ; e.g. → ví dụ ; i.e. → tức là ; vs. → so với ; approx. → khoảng."
+  - "Số thập phân dùng dấu phẩy (0,5 mg), phân cách hàng nghìn dùng dấu chấm (1.000) khi number_format = vi. KHÔNG được làm tròn, KHÔNG đổi giá trị."
+  - "Đơn vị thời gian được dịch: h → giờ, min → phút, s → giây, d → ngày, wk → tuần, mo → tháng, y/yr → năm."
+  - "Khoảng giá trị: 5–10 mg giữ dấu gạch nối; '<', '>', '≤', '≥', '±' giữ nguyên ký hiệu."
+  - "p < 0.05 → p < 0,05; 95% CI → KTC 95%; OR, HR, RR giữ nguyên chữ viết tắt (có thể chú thích lần đầu: tỉ số chênh (OR))."
+  - "SD → ĐLC (độ lệch chuẩn) hoặc giữ SD theo bảng thuật ngữ; mean ± SD → trung bình ± ĐLC."
+  - "Liều dùng: giữ nguyên cấu trúc số – đơn vị – đường dùng – tần suất. q.d./b.i.d./t.i.d./q.i.d. → 1 lần/ngày, 2 lần/ngày, 3 lần/ngày, 4 lần/ngày; PO → đường uống; IV → tiêm tĩnh mạch; IM → tiêm bắp; SC → tiêm dưới da."
+  - "Tên thuốc: theo drug_name_style trong config (duoc_thu = cách viết của Dược thư Quốc gia Việt Nam, ví dụ amoxicilin, cefuroxim, adrenalin; inn = giữ nguyên INN). Biệt dược (tên thương mại ®) luôn giữ nguyên."
+  - "Tên vi sinh vật, tên chi/loài: giữ nguyên tiếng Latin, in nghiêng."
+  - "Tên riêng (tác giả, tạp chí, tên thử nghiệm lâm sàng như SPRINT, UKPDS), tên tổ chức viết tắt: giữ nguyên; tên tổ chức đầy đủ có tên Việt chính thức thì dịch (World Health Organization → Tổ chức Y tế Thế giới)."
+  - "Thang điểm, phân loại (Glasgow, APGAR, NYHA, Child-Pugh, GOLD): giữ tên riêng, dịch phần mô tả."
+  - "Danh mục tài liệu tham khảo (References/Bibliography): giữ nguyên toàn bộ, chỉ dịch tiêu đề mục."

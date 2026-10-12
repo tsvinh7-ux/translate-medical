@@ -1,0 +1,58 @@
+# ============================================================
+#  Cấu hình MedTrans - công cụ dịch tài liệu y khoa Anh → Việt
+# ============================================================
+
+llm:
+  provider: anthropic          # anthropic | mock (mock = chạy thử không tốn token)
+  model: claude-opus-5-5       # model mạnh nhất cho chất lượng cao
+  effort: high                 # low | medium | high | xhigh | max  (max = kỹ nhất, tốn nhất)
+  review_effort: high          # mức suy luận cho vòng biên tập/đối chiếu
+  max_tokens: 64000
+  use_fallbacks: true          # tự chuyển model dự phòng nếu bị từ chối
+  max_retries: 4
+  timeout_seconds: 900
+
+translation:
+  domain: general_medicine     # chuyên ngành mặc định (cardiology, oncology, pharmacology...)
+  batch_chars: 6000            # số ký tự nguồn gộp vào một lần gọi API
+  workers: 3                   # số luồng dịch song song (theo trang)
+  number_format: vi            # vi = 0,5 mg; 1.000 (chuẩn Việt) | keep = giữ nguyên như bản gốc
+  drug_name_style: duoc_thu    # duoc_thu = theo Dược thư QG VN (amoxicilin) | inn = giữ INN gốc (amoxicillin)
+  abbreviation_policy: first_gloss   # first_gloss = lần đầu ghi "tiếng Việt (ABBR)" | keep = giữ nguyên
+  review_mode: always          # always = luôn chạy vòng biên tập 2 | on_issues = chỉ khi có lỗi
+  max_refine_rounds: 2         # số vòng sửa tối đa khi kiểm tra tự động còn lỗi
+  web_research: true           # tra cứu Internet khi thuật ngữ không chắc chắn
+  web_research_max_uses: 5
+  web_preferred_domains:       # nguồn ưu tiên khi tra cứu
+    - moh.gov.vn
+    - kcb.vn
+    - dav.gov.vn
+    - thuvienphapluat.vn
+    - vinmec.com
+    - bvndtp.org.vn
+    - hmu.edu.vn
+    - ump.edu.vn
+    - who.int
+    - ncbi.nlm.nih.gov
+    - medlineplus.gov
+
+memory:
+  db_path: workspace/medtrans.db
+  tm_reuse_threshold: 100      # % khớp để dùng lại bản dịch cũ KHÔNG gọi API (100 = khớp tuyệt đối)
+  tm_fuzzy_threshold: 75       # % khớp để đưa bản dịch cũ vào làm tham khảo
+  tm_min_quality: 85           # chỉ tái sử dụng bản dịch có điểm chất lượng >= ngưỡng này
+  auto_learn_terms: true       # tự trích thuật ngữ mới sau mỗi tài liệu (chờ bạn duyệt)
+
+layout:
+  font_dir: auto               # auto = tự tìm font Unicode trên máy; hoặc đường dẫn thư mục font
+  serif_font: auto             # ví dụ: C:/Windows/Fonts/times.ttf
+  sans_font: auto              # ví dụ: C:/Windows/Fonts/arial.ttf
+  min_font_scale: 0.6          # cho phép thu nhỏ chữ tối đa còn 60% khi bản Việt dài hơn
+  translate_images: true
+  image_ocr: tesseract         # tesseract | claude | off
+  image_min_size: 120          # bỏ qua ảnh nhỏ hơn (pixel)
+  keep_math_blocks: true       # giữ nguyên khối công thức toán
+
+output:
+  dir: workspace/output
+  bilingual_report: true       # xuất file HTML song ngữ để biên tập viên duyệt
