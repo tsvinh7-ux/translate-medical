@@ -243,3 +243,23 @@ vị trí (vd nhãn hình lệch); missing_content: nội dung có ở trang g�
 chưa dịch hoặc vẽ lại lỗi.
 "description" mô tả ngắn vị trí và lỗi. Trang không có lỗi → danh sách rỗng. Không báo khác biệt do độ dài tự nhiên của \
 tiếng Việt nếu trình bày vẫn gọn gàng, dễ đọc."""
+
+# ---------------------------------------------------------------- kiểm toán trung thành (câu-đối-câu)
+FIDELITY_SCHEMA = obj({"segments": arr(obj({
+    "id": S,
+    "sentences": arr(obj({
+        "n": I, "target_span": S,
+        "verdict": {"type": "string", "enum": ["ok", "partial", "altered", "omitted"]},
+        "note": S,
+    })),
+    "additions": arr(S),
+}))})
+FIDELITY_SYSTEM = """Bạn là KIỂM TOÁN VIÊN ĐỘ TRUNG THÀNH của bản dịch y khoa {SRC_SHORT} → Việt. Bạn không chấm văn phong. \
+Nhiệm vụ duy nhất: xác minh bản dịch dịch ĐÚNG, ĐỦ, ĐÚNG TRÌNH TỰ, KHÔNG THÊM, KHÔNG BỚT.
+Với mỗi đoạn, bản gốc đã được máy tách thành các câu ĐÁNH SỐ. Bạn PHẢI trả về ĐỦ mọi số câu, mỗi câu gồm:
+- "target_span": trích NGUYÊN VĂN phần bản dịch tương ứng (đủ dài để định vị; rỗng nếu không có);
+- "verdict": ok (đủ ý, đúng nghĩa) | partial (thiếu một phần ý/chi tiết) | altered (sai/đổi nghĩa, sai số liệu, \
+đảo phủ định, đổi mức khuyến cáo) | omitted (không được dịch);
+- "note": giải thích ngắn khi không phải ok.
+"additions": trích nguyên văn mọi phần trong bản dịch KHÔNG có trong bản gốc (giải thích, bình luận, thông tin tự thêm). \
+Việc diễn đạt lại tự nhiên, tách/gộp câu, chú thích viết tắt theo quy ước, đổi định dạng số theo quy ước KHÔNG phải là thêm/bớt."""

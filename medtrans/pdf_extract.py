@@ -288,6 +288,7 @@ def extract(pdf_path: str | Path, min_image_px: int = 120, lang: LangProfile = E
     pages: list[PageInfo] = []
     sizes_all: list[float] = []
     warned = False
+    scan_jobs: list[int] = []
     for pno, page in enumerate(doc):
         if page_numbers is not None and pno not in page_numbers:
             continue
@@ -296,7 +297,7 @@ def extract(pdf_path: str | Path, min_image_px: int = 120, lang: LangProfile = E
         scanned = ocr_scans and scan.is_scanned(page)
         if scanned:
             if scan.tesseract_available():
-                blocks = scan.page_blocks(page, pno, lang.tesseract, scan_dpi)
+                scan_jobs.append(pno)  # OCR song song sau vòng lặp
             elif not warned:
                 warned = True
                 import logging
@@ -331,6 +332,25 @@ def extract(pdf_path: str | Path, min_image_px: int = 120, lang: LangProfile = E
         if scanned:
             obstacles = [o for o in obstacles if (o[2] - o[0]) * (o[3] - o[1]) < page_area * 0.4]
         pages.append(PageInfo(pno, w, h, _reading_order(blocks, w), images, obstacles, scanned=scanned))
+    if scan_jobs:
+        # OCR trang scan song song trên mọi nhân CPU; render tuần tự, giới hạn số ảnh trong bộ nhớ
+        import os
+        from concurrent.futures import ThreadPoolExecutor
+        by_no = {p.number: p for p in pages}
+        n_cpu = max(1, os.cpu_count() or 2)
+        with ThreadPoolExecutor(max_workers=n_cpu) as ex:
+            inflight = []
+            for pno in scan_jobs:
+                img = scan.render_page(doc[pno], scan_dpi)
+                inflight.append((pno, ex.submit(scan.blocks_from_image, img, pno, lang.tesseract, scan_dpi)))
+                if len(inflight) >= n_cpu * 2:
+                    q, f = inflight.pop(0)
+                    by_no[q].blocks = _reading_order(f.result(), by_no[q].width)
+            for q, f in inflight:
+                by_no[q].blocks = _reading_order(f.result(), by_no[q].width)
+        for pno in scan_jobs:
+            for b in by_no[pno].blocks:
+                sizes_all.extend([b.font_size] * max(1, len(b.plain) // 20))
     doc.close()
 
     body_size = statistics.median(sizes_all) if sizes_all else 10.0

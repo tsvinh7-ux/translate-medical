@@ -77,6 +77,18 @@ class PublishingStages:
         full_norm = normalize_text(full)
         uncertain_below = float(tcfg.get("uncertain_below", 0.85))
         decided, uncertain = 0, []
+        rows: dict[str, dict] = {}
+
+        def context_of(term: str) -> str:
+            m = re.search(r"[^.\n]*" + re.escape(term) + r"[^.\n]*", full, re.I)
+            return (m.group(0).strip() if m else "")[:300]
+
+        # thuật ngữ đã có trong kho chuẩn cũng đưa vào termbase dự án để kiểm tra một thể
+        for t in self.matcher.find(full):
+            k = normalize_text(t["en"])
+            rows[k] = {"en": t["en"], "vi": t["vi"], "freq": full_norm.count(k), "category": t.get("category", ""),
+                       "confidence": 1.0, "origin": "glossary", "note": t.get("note", ""), "context": context_of(t["en"]),
+                       "sources": t.get("source_url", "")}
         for key, items in props.items():
             if self._in_glossary(items[0]["en"]):
                 continue
@@ -90,6 +102,10 @@ class PublishingStages:
                 self.decided.setdefault(key, {"en": best["en"], "vi": best["vi"], "source": "termprep",
                                               "confidence": conf, "note": best.get("note", "")})
             decided += 1
+            rows[key] = {"en": best["en"], "vi": best["vi"], "freq": freq, "category": best.get("category", ""),
+                         "confidence": conf, "origin": "termprep", "note": best.get("note", ""),
+                         "variants": " / ".join(dict.fromkeys(i["vi"] for i in items)) if len(votes) > 1 else "",
+                         "context": context_of(best["en"])}
             self.db.upsert_term(best["en"], best["vi"], self.domain, category=best.get("category", ""),
                                 note=f"Chuẩn bị thuật ngữ toàn văn. {best.get('note', '')}", source="termprep",
                                 status="candidate", overwrite=False, src_lang=self.lang.code)
@@ -115,7 +131,16 @@ class PublishingStages:
                         self.decided.setdefault(normalize_text(g["term"]),
                                                 {"en": g["term"], "vi": g["chosen_vi"], "source": "termprep"})
                 researched += len(group)
-        return {"chunks": len(chunks), "terms": decided, "researched": researched}
+            with self._decided_lock:  # cập nhật termbase dự án theo kết quả tra cứu
+                for g in uncertain:
+                    k = normalize_text(g["term"])
+                    d = self.decided.get(k)
+                    if d and k in rows and d.get("source") == "web":
+                        rows[k].update(vi=d["vi"], origin="web", confidence=d.get("confidence", 0),
+                                       sources=", ".join(d.get("sources", [])[:3]),
+                                       note=(d.get("note") or rows[k]["note"]))
+        self.db.job_terms_save(self.job_id, list(rows.values()))
+        return {"chunks": len(chunks), "terms": decided, "researched": researched, "termbase_rows": len(rows)}
 
     # ============================================================ 2. biên tập toàn văn
     def _consistency_pass(self, units: list["Unit"]) -> dict:
@@ -221,13 +246,8 @@ class PublishingStages:
             out = pymupdf.open(str(out_pdf))
             todo = [p for p in pages if (only is None or p.number in only) and
                     (p.blocks or p.images)]
-            imgs = {p.number: (src[p.number].get_pixmap(dpi=dpi).tobytes("png"),
-                               out[p.number].get_pixmap(dpi=dpi).tobytes("png")) for p in todo}
-            src.close()
-            out.close()
 
-            def run(p):
-                a, b = imgs[p.number]
+            def run(p, a, b):
                 key = f"proof:{self.job_id}:{hashlib.sha1(a + b).hexdigest()}"
                 cached = self.db.research_get(key)
                 if cached is not None:
@@ -243,11 +263,22 @@ class PublishingStages:
                 self.db.research_put(key, f"proof p{p.number}", {"issues": found})
                 return found
 
-            with ThreadPoolExecutor(max_workers=max(1, int(self.cfg.get_path("translation.workers", 3)))) as ex:
-                for k, found in enumerate(ex.map(run, todo)):
-                    issues.extend(found)
-                    if k % 5 == 0:
+            # sinh ảnh trang dần dần (dòng chảy), giới hạn số trang đang xử lý → tiết kiệm bộ nhớ
+            workers = max(1, int(self.cfg.get_path("translation.workers", 3)))
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                inflight = []
+                for k, p in enumerate(todo):
+                    a = src[p.number].get_pixmap(dpi=dpi).tobytes("png")
+                    b = out[p.number].get_pixmap(dpi=dpi).tobytes("png")
+                    inflight.append(ex.submit(run, p, a, b))
+                    if len(inflight) >= workers * 2:
+                        issues.extend(inflight.pop(0).result())
+                    if k % 10 == 0:
                         self.progress(0.92, f"Đọc morat: trang {k + 1}/{len(todo)}")
+                for f in inflight:
+                    issues.extend(f.result())
+            src.close()
+            out.close()
         return issues
 
     def _apply_proof_fixes(self, issues: list[dict], units: list["Unit"]) -> tuple[list["Unit"], set[int]]:

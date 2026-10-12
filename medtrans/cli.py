@@ -29,6 +29,10 @@ def cmd_translate(cfg, args) -> None:
         cfg["llm"]["provider"] = "mock"
     if args.lang:
         cfg["translation"]["source_lang"] = args.lang
+    if args.require_termbase:
+        cfg["terminology"]["require_lock"] = True
+    from .config import apply_profile
+    cfg = apply_profile(cfg, args.profile)
     page_range = None
     if args.pages:
         a, _, b = args.pages.partition("-")
@@ -103,6 +107,48 @@ def cmd_domain(cfg, args) -> None:
         print(db.domain_notes(args.domain) or "(chưa có)")
 
 
+def cmd_analyze(cfg, args) -> None:
+    from .analysis import analyze, export_xlsx
+    res = analyze(args.pdf, cfg, _db(cfg), domain=args.domain)
+    out = Path(args.out or Path(args.pdf).with_name(Path(args.pdf).stem + "_analysis.xlsx"))
+    export_xlsx(res, out)
+    t = res["totals"]
+    print(f"{res['file']['name']}: {res['file']['pages_analyzed']} trang, {t['words']} từ cần dịch "
+          f"({t['a4_pages']} trang A4), quy đổi {t['weighted_words']} từ, {res['terms']['unique']} thuật ngữ")
+    for b in res["bands"]:
+        print(f"  {b['label']:<30} {b['segments']:>7} đoạn {b['words']:>9} từ {b['percent']:>6}%")
+    for p in res.get("profiles", []):
+        print(f"  [{p['label']}] ${p['estimated_cost_usd_low']}–{p['estimated_cost_usd_high']} · "
+              f"{p['estimated_time_low']}–{p['estimated_time_high']}")
+    print(f"Báo cáo: {out}")
+
+
+def cmd_terms(cfg, args) -> None:
+    from .config import apply_profile
+    from .translator import Translator
+    if args.action == "scan":
+        if args.mock:
+            cfg["llm"]["provider"] = "mock"
+        res = Translator(apply_profile(cfg, args.profile)).scan_terms(args.pdf, domain=args.domain)
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+    else:
+        from .termbase import lock, read_xlsx
+        from .translator import job_id_for, pdf_hash_of
+        domain = args.domain or cfg.get_path("translation.domain")
+        job = job_id_for(pdf_hash_of(args.pdf), domain, cfg.get_path("translation.source_lang", "en"))
+        print(lock(_db(cfg), job, read_xlsx(args.xlsx), domain))
+
+
+def cmd_calibrate(cfg, args) -> None:
+    from .calibrate import calibrate
+    a, _, b = args.pages.partition("-")
+    rows = calibrate(args.pdf, cfg, _db(cfg), args.profiles.split(","), page_range=(int(a), int(b or a)),
+                     domain=args.domain, progress=lambda f, m: print(f"[{int(f * 100):3d}%] {m}"))
+    for r in rows:
+        print(f"{r['profile']:<10} MQM {r['avg_mqm']:>5} · đạt chuẩn {r['pass_rate']}% (KTC95 {r['ci_low']}–"
+              f"{r['ci_high']}%) · ${r['cost_per_a4']}/A4 · {r['sec_per_a4']} s/A4")
+
+
 def cmd_ui(cfg, args) -> None:
     from .branding import write_streamlit_theme
     write_streamlit_theme(cfg)
@@ -124,6 +170,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--out", help="Thư mục kết quả")
     p.add_argument("--mock", action="store_true", help="Chạy thử không gọi API")
     p.add_argument("--lang", help="Ngôn ngữ nguồn (mặc định theo config, hiện có: en)")
+    p.add_argument("--profile", help="Hồ sơ chất lượng/chi phí: draft | economy | balanced | premium")
+    p.add_argument("--require-termbase", action="store_true", help="Dừng sau quét thuật ngữ, chờ khoá termbase")
     p.set_defaults(fn=cmd_translate)
 
     p = sub.add_parser("estimate", help="Ước tính chi phí")
@@ -157,6 +205,28 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("domain")
     p.add_argument("--file", help="File .txt/.md chứa quy ước")
     p.set_defaults(fn=cmd_domain)
+
+    p = sub.add_parser("analyze", help="Phân tích tài liệu (số từ, mức khớp, lặp lại, thuật ngữ, dự báo)")
+    p.add_argument("pdf")
+    p.add_argument("--domain")
+    p.add_argument("--out", help="File Excel kết quả")
+    p.set_defaults(fn=cmd_analyze)
+
+    p = sub.add_parser("terms", help="Termbase dự án: scan (quét & xuất Excel) | lock (nhập Excel đã kiểm tra & khoá)")
+    p.add_argument("action", choices=["scan", "lock"])
+    p.add_argument("pdf")
+    p.add_argument("xlsx", nargs="?")
+    p.add_argument("--domain")
+    p.add_argument("--profile")
+    p.add_argument("--mock", action="store_true")
+    p.set_defaults(fn=cmd_terms)
+
+    p = sub.add_parser("calibrate", help="Hiệu chuẩn hồ sơ trên trang mẫu (MQM, xác suất đạt chuẩn, chi phí, thời gian)")
+    p.add_argument("pdf")
+    p.add_argument("--pages", default="1-10")
+    p.add_argument("--profiles", default="economy,balanced,premium")
+    p.add_argument("--domain")
+    p.set_defaults(fn=cmd_calibrate)
 
     sub.add_parser("ui", help="Mở giao diện web trên localhost").set_defaults(fn=cmd_ui)
 

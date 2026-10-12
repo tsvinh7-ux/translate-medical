@@ -121,9 +121,87 @@ def _free_space_sides(b: TextBlock, page: PageInfo) -> tuple[float, float]:
     return max(0.0, b.bbox[0] - left_lim), max(0.0, right_lim - b.bbox[2])
 
 
+def _render_part(args: tuple) -> dict:
+    """Tiến trình con: dàn một đoạn trang [a, b) rồi lưu riêng (dùng cho dàn trang song song)."""
+    src_pdf, part_pdf, a, b, pages, translations, fonts, min_scale, image_png, strict_pages = args
+    stats = render(src_pdf, part_pdf, pages, translations, fonts, min_scale, image_png, strict_pages,
+                   keep_range=(a, b))
+    return stats
+
+
+def render_parallel(src_pdf: str | Path, out_pdf: str | Path, pages: list[PageInfo], translations: dict[str, str],
+                    fonts: FontSet, min_scale: float = 0.6, image_replacements: dict | None = None,
+                    strict_pages: set[int] | None = None, processes: int | None = None) -> dict:
+    """Dàn trang song song nhiều tiến trình cho tài liệu dài (mỗi nhân CPU một đoạn trang), rồi ghép lại."""
+    import io as _io
+    import os
+    import tempfile
+
+    n_total = pymupdf.open(str(src_pdf)).page_count
+    procs = processes or max(1, min(8, (os.cpu_count() or 2)))
+    if n_total < 60 or procs < 2:
+        return render(src_pdf, out_pdf, pages, translations, fonts, min_scale, image_replacements, strict_pages)
+    image_png = {}
+    for xref, (pno, img) in (image_replacements or {}).items():
+        if isinstance(img, (bytes, bytearray)):
+            image_png[xref] = (pno, bytes(img))
+        else:
+            buf = _io.BytesIO()
+            img.save(buf, format="PNG", optimize=True)
+            image_png[xref] = (pno, buf.getvalue())
+    step = -(-n_total // procs)
+    tmp = Path(tempfile.mkdtemp(prefix="medtrans_render_"))
+    jobs = []
+    for i, a in enumerate(range(0, n_total, step)):
+        b = min(n_total, a + step)
+        sub = [p for p in pages if a <= p.number < b]
+        ids = {blk.id for p in sub for blk in p.blocks}
+        jobs.append((str(src_pdf), str(tmp / f"part{i:03d}.pdf"), a, b, sub,
+                     {k: v for k, v in translations.items() if k in ids}, fonts, min_scale,
+                     {x: v for x, v in image_png.items() if a <= v[0] < b}, strict_pages or set()))
+    # mỗi đoạn trang chạy trong một tiến trình Python độc lập (ổn định trên Windows/macOS/Linux, kể cả trong Streamlit)
+    import pickle
+    import subprocess
+    import sys
+    running = []
+    for i, j in enumerate(jobs):
+        argf = tmp / f"part{i:03d}.pkl"
+        argf.write_bytes(pickle.dumps(j))
+        running.append((subprocess.Popen([sys.executable, "-m", "medtrans.pdf_render", str(argf)],
+                                         cwd=str(Path(__file__).resolve().parent.parent),
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE), argf))
+    results = []
+    for proc, argf in running:
+        _, err = proc.communicate()
+        res_f = argf.with_suffix(".json")
+        if proc.returncode != 0 or not res_f.exists():
+            raise RuntimeError(f"Dàn trang song song lỗi: {err.decode(errors='replace')[-2000:]}")
+        import json as _json
+        results.append(_json.loads(res_f.read_text()))
+        argf.unlink(missing_ok=True)
+        res_f.unlink(missing_ok=True)
+    out = pymupdf.open()
+    for j in jobs:
+        part = pymupdf.open(j[1])
+        out.insert_pdf(part)
+        part.close()
+    out.save(str(out_pdf), garbage=3, deflate=True)
+    out.close()
+    for j in jobs:
+        Path(j[1]).unlink(missing_ok=True)
+    tmp.rmdir()
+    stats = {"blocks": 0, "shrunk": 0, "overflow": [], "overlaps": []}
+    for r in results:
+        stats["blocks"] += r["blocks"]
+        stats["shrunk"] += r["shrunk"]
+        stats["overflow"] += r["overflow"]
+        stats["overlaps"] += r["overlaps"]
+    return stats
+
+
 def render(src_pdf: str | Path, out_pdf: str | Path, pages: list[PageInfo], translations: dict[str, str],
            fonts: FontSet, min_scale: float = 0.6, image_replacements: dict[int, object] | None = None,
-           strict_pages: set[int] | None = None) -> dict:
+           strict_pages: set[int] | None = None, keep_range: tuple[int, int] | None = None) -> dict:
     """translations: block_id → HTML tiếng Việt (đã khôi phục mã giữ chỗ)."""
     doc = pymupdf.open(str(src_pdf))
     css_fonts = fonts.css()
@@ -230,7 +308,19 @@ def render(src_pdf: str | Path, out_pdf: str | Path, pages: list[PageInfo], tran
             replace_image(doc[page_no], xref, img)
         except Exception as e:
             log.warning("Không thay được ảnh xref=%s: %s", xref, e)
+    if keep_range:
+        doc.select(list(range(keep_range[0], keep_range[1])))
     doc.subset_fonts()
     doc.save(str(out_pdf), garbage=3, deflate=True)
     doc.close()
     return stats
+
+
+if __name__ == "__main__":  # tiến trình con của render_parallel
+    import json
+    import pickle
+    import sys
+
+    _argf = Path(sys.argv[1])
+    _stats = _render_part(pickle.loads(_argf.read_bytes()))
+    _argf.with_suffix(".json").write_text(json.dumps(_stats))

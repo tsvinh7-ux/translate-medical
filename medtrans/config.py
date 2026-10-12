@@ -55,4 +55,27 @@ def load_config(path: str | Path | None = None, overrides: dict | None = None) -
     data = yaml.safe_load(Path(path or DEFAULT_CONFIG).read_text(encoding="utf-8")) or {}
     if overrides:
         data = _deep_merge(data, overrides)
+    if os.environ.get("MEDTRANS_DB"):  # CSDL riêng (kiểm thử / nhiều không gian làm việc)
+        data.setdefault("memory", {})["db_path"] = os.environ["MEDTRANS_DB"]
+    if os.environ.get("MEDTRANS_PROVIDER"):  # chế độ trình diễn / kiểm thử: MEDTRANS_PROVIDER=mock
+        data.setdefault("llm", {})["provider"] = os.environ["MEDTRANS_PROVIDER"]
     return Config(data)
+
+
+PROFILE_ORDER = ["draft", "economy", "balanced", "premium"]
+
+
+def profiles(cfg: Config) -> dict[str, dict]:
+    return cfg.get("profiles") or {}
+
+
+def apply_profile(cfg: Config, name: str | None) -> Config:
+    """Trả về cấu hình đã áp hồ sơ chất lượng/chi phí (không sửa cfg gốc)."""
+    name = name or cfg.get("default_profile", "premium")
+    prof = profiles(cfg).get(name)
+    if prof is None:
+        raise ValueError(f"Không có hồ sơ '{name}'. Hiện có: {', '.join(profiles(cfg))}")
+    over = {k: v for k, v in prof.items() if k not in ("label", "description")}
+    out = Config(_deep_merge(dict(cfg), over))
+    out["active_profile"] = name
+    return out

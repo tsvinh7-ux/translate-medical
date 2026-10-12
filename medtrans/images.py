@@ -7,8 +7,13 @@ import re
 import statistics
 from dataclasses import dataclass
 
+import os
+
 import pymupdf
 from PIL import Image, ImageDraw, ImageFont
+
+# OCR chạy song song nhiều tiến trình → mỗi tiến trình Tesseract chỉ dùng 1 luồng (tránh tranh chấp CPU)
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
 
 log = logging.getLogger("medtrans.images")
 
@@ -145,7 +150,12 @@ def redraw(img: Image.Image, lines: list[OcrLine], translations: dict[str, str],
     return out
 
 
-def replace_image(page: pymupdf.Page, xref: int, img: Image.Image) -> None:
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    page.replace_image(xref, stream=buf.getvalue())
+def replace_image(page: pymupdf.Page, xref: int, img) -> None:
+    """img: ảnh PIL hoặc bytes PNG."""
+    if isinstance(img, (bytes, bytearray)):
+        data = bytes(img)
+    else:
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        data = buf.getvalue()
+    page.replace_image(xref, stream=data)

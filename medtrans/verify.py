@@ -163,7 +163,13 @@ def check(src: str, tgt: str, *, rules: Rules, number_format: str = "vi", placeh
         issues.append(Issue("warning", "length", f"Độ dài bất thường (gốc {ls} ký tự, dịch {lt} ký tự) – "
                                                   "nghi thiếu/thừa ý"))
 
-    # 9. thẻ định dạng
+    # 9. số câu (phát hiện bỏ sót cả câu) – cho phép gộp/tách câu hợp lý
+    from .fidelity import split_sentences, split_sentences_vi
+    ns, nt = len(split_sentences(src)), len(split_sentences_vi(PLACEHOLDER_RE.sub("X", tgt)))
+    if ns >= 3 and nt < ns - max(1, ns // 4):
+        issues.append(Issue("warning", "sentence_count", f"Bản gốc {ns} câu, bản dịch chỉ {nt} câu – nghi bỏ sót"))
+
+    # 10. thẻ định dạng
     for tag in ("b", "i", "sup", "sub"):
         if tgt.count(f"<{tag}>") != tgt.count(f"</{tag}>"):
             issues.append(Issue("warning", "tags", f"Thẻ <{tag}> không cân bằng"))

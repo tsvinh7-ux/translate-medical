@@ -87,6 +87,39 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at REAL
 );
 
+CREATE TABLE IF NOT EXISTS job_terms (
+    job_id TEXT,
+    en_norm TEXT,
+    en TEXT,
+    vi TEXT,
+    freq INTEGER DEFAULT 0,
+    category TEXT DEFAULT '',
+    confidence REAL DEFAULT 0,
+    variants TEXT DEFAULT '',
+    context TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    origin TEXT DEFAULT '',            -- glossary | termprep | web | termbase
+    sources TEXT DEFAULT '',
+    status TEXT DEFAULT 'proposed',    -- proposed | locked | rejected
+    PRIMARY KEY (job_id, en_norm)
+);
+
+CREATE TABLE IF NOT EXISTS calibration (
+    profile TEXT,
+    domain TEXT,
+    model TEXT,
+    segments INTEGER,
+    avg_mqm REAL,
+    pass_rate REAL,                    -- % đoạn đạt chuẩn theo giám khảo tham chiếu
+    ci_low REAL,                       -- khoảng tin cậy 95% (Wilson) của tỉ lệ đạt
+    ci_high REAL,
+    critical_rate REAL,                -- % đoạn còn lỗi critical
+    cost_per_a4 REAL,
+    sec_per_a4 REAL,
+    sample TEXT,
+    created_at REAL
+);
+
 CREATE TABLE IF NOT EXISTS perf (
     job_id TEXT,
     chars INTEGER,
@@ -333,6 +366,31 @@ class Database:
             if isinstance(v, (dict, list)):
                 v = json.dumps(v, ensure_ascii=False)
             self.execute(f"UPDATE jobs SET {k}=?, updated_at=? WHERE job_id=?", (v, now, job_id))
+
+    # ------------------------------------------------------------ termbase dự án
+    def job_terms_save(self, job_id: str, rows: list[dict]) -> None:
+        """Ghi thuật ngữ đề xuất của dự án; không đụng tới thuật ngữ đã khoá."""
+        locked = {r["en_norm"] for r in self.query(
+            "SELECT en_norm FROM job_terms WHERE job_id=? AND status='locked'", (job_id,))}
+        with self._lock:
+            for r in rows:
+                key = normalize_text(r["en"])
+                if key in locked:
+                    continue
+                self.conn.execute(
+                    """INSERT OR REPLACE INTO job_terms (job_id, en_norm, en, vi, freq, category, confidence, variants,
+                       context, note, origin, sources, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'proposed')""",
+                    (job_id, key, r["en"], r.get("vi", ""), int(r.get("freq", 0)), r.get("category", ""),
+                     float(r.get("confidence") or 0), r.get("variants", ""), r.get("context", ""),
+                     r.get("note", ""), r.get("origin", ""), r.get("sources", "")))
+            self.conn.commit()
+
+    def job_terms(self, job_id: str) -> list[dict]:
+        return [dict(r) for r in self.query("SELECT * FROM job_terms WHERE job_id=? ORDER BY freq DESC, en",
+                                            (job_id,))]
+
+    def job_terms_locked(self, job_id: str) -> bool:
+        return bool(self.query("SELECT 1 FROM job_terms WHERE job_id=? AND status='locked' LIMIT 1", (job_id,)))
 
     def perf_add(self, job_id: str, chars: int, seconds: float, workers: int, effort: str) -> None:
         self.execute("INSERT INTO perf (job_id, chars, seconds, sec_per_kchar, workers, effort, created_at) "

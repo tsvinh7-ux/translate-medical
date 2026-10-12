@@ -16,7 +16,7 @@ translation:
   source_lang: en              # ngôn ngữ nguồn (hiện hoàn thiện: en). Đích luôn là tiếng Việt
   domain: general_medicine     # chuyên ngành mặc định (cardiology, oncology, pharmacology...)
   batch_chars: 6000            # số ký tự nguồn gộp vào một lần gọi API
-  workers: 3                   # số luồng dịch song song (theo trang)
+  workers: 6                   # số luồng song song (tăng nếu hạn mức API cho phép)
   number_format: vi            # vi = 0,5 mg; 1.000 (chuẩn Việt) | keep = giữ nguyên như bản gốc
   drug_name_style: duoc_thu    # duoc_thu = theo Dược thư QG VN (amoxicilin) | inn = giữ INN gốc (amoxicillin)
   abbreviation_policy: first_gloss   # first_gloss = lần đầu ghi "tiếng Việt (ABBR)" | keep = giữ nguyên
@@ -45,12 +45,14 @@ workflow:                      # quy trình xuất bản (bật/tắt từng cô
 
 terminology:                   # CHUẨN BỊ THUẬT NGỮ TOÀN VĂN trước khi dịch
   prepass: true
+  require_lock: false          # true = CHỐT CHẶN: quét → xuất termbase → chờ kiểm tra & khoá rồi mới dịch
   chunk_chars: 40000
   uncertain_below: 0.85        # thuật ngữ tin cậy thấp hơn / có nhiều cách dịch → tra cứu web
   research_max_terms: 150
 
 quality:                       # CHẾ ĐỘ KHẮT KHE – đánh giá chuẩn MQM & tự chứng nhận (không cần người duyệt)
   independent_eval: true
+  fidelity_audit: true         # CHẾ TÀI TRUNG THÀNH: đối chiếu từng câu đánh số – không thêm, không bớt, đúng trình tự
   judges: [clinical, linguistic]   # hội đồng 2 giám khảo độc lập: chuyên môn y khoa + ngôn ngữ xuất bản
   eval_rounds: 3               # chấm → sửa lỗi critical/major → chấm lại (tối đa 3 vòng)
   certify_score: 97            # điểm MQM tối thiểu để TỰ CHỨNG NHẬN
@@ -97,6 +99,47 @@ branding:                      # nhận diện thương hiệu cho giao diện &
   font: "Be Vietnam Pro"       # font giao diện (Google Fonts, hỗ trợ tiếng Việt)
   logo: assets/logo.png        # đặt file logo DMAG vào đây
 
+queue:
+  parallel_jobs: 1             # số tài liệu xử lý đồng thời (mỗi tài liệu đã chạy đa luồng bên trong)
+
 output:
   dir: workspace/output
   bilingual_report: true       # xuất file HTML song ngữ để biên tập viên duyệt
+
+# ============================================================
+#  HỒ SƠ CHẤT LƯỢNG / CHI PHÍ – chọn khi tạo dự án.
+#  Mỗi hồ sơ ghi đè các mục ở trên. Chạy "hiệu chuẩn" (Calibrate) trên 10–20 trang mẫu để có
+#  số đo thực tế: điểm MQM, xác suất đạt chuẩn (kèm khoảng tin cậy 95%), chi phí, thời gian.
+# ============================================================
+default_profile: premium
+profiles:
+  draft:
+    label: "Bản thô nhanh"
+    description: "Dịch thô tốc độ cao để đọc hiểu/duyệt nhanh; sau đó có thể nâng cấp lên hồ sơ cao hơn (dùng lại bản thô)."
+    llm: {model: claude-haiku-5-5, effort: low, review_effort: low, use_fallbacks: false, max_retries: 8}
+    translation: {workers: 32, web_research: false, max_refine_rounds: 1}
+    terminology: {prepass: true}
+    workflow: {revise: false, edit: false, consistency: false}
+    quality: {independent_eval: false, fidelity_audit: false, strict_certify: false}
+    proof: {enabled: true, vision: false}
+    memory: {auto_enrich: false}
+    scan: {ocr_correct: false}
+  economy:
+    label: "Tiết kiệm"
+    description: "Sonnet, 1 vòng biên tập, 1 giám khảo, kiểm toán trung thành; đọc morat bằng máy."
+    llm: {model: claude-sonnet-5-5, effort: medium, review_effort: medium}
+    translation: {workers: 12, max_refine_rounds: 2}
+    workflow: {revise: false, edit: true, consistency: true}
+    quality: {judges: [clinical], eval_rounds: 2, certify_score: 95}
+    proof: {enabled: true, vision: false}
+  balanced:
+    label: "Cân bằng"
+    description: "Opus, hiệu đính + biên tập, 1 giám khảo, kiểm toán trung thành, đọc morat bằng hình ảnh 1 vòng."
+    llm: {model: claude-opus-5-5, effort: high, review_effort: high}
+    translation: {workers: 8}
+    quality: {judges: [clinical], eval_rounds: 2, certify_score: 96}
+    proof: {enabled: true, vision: true, rounds: 1}
+  premium:
+    label: "Xuất bản cao cấp"
+    description: "Chế độ khắt khe đầy đủ: Opus xhigh, hiệu đính + biên tập, 2 giám khảo, 3 vòng, đọc morat 2 vòng."
+    llm: {model: claude-opus-5-5, effort: xhigh, review_effort: xhigh}

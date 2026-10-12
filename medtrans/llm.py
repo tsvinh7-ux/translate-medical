@@ -203,6 +203,10 @@ class MockLLM:
             return {"fixes": []}
         if task == "proof":
             return {"issues": []}
+        if task == "fidelity":
+            return {"segments": [{"id": s["id"], "sentences": [
+                {"n": x["n"], "target_span": "", "verdict": "ok", "note": ""} for x in s["source_sentences"]],
+                "additions": []} for s in p.get("segments", [])]}
         if task == "evaluate":
             return {"segments": [{"id": s["id"], "errors": [], "corrected": ""} for s in p.get("segments", [])]}
         if task == "extract_terms":

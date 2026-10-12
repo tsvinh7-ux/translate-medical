@@ -37,45 +37,58 @@ Sau khi có, điền vào mục `branding` trong `config.yaml`. Giao diện và 
 
 ## 2. Cách tính chi phí
 
-- Chi phí được tính theo **toàn văn (full text)**, cụ thể là số ký tự thực tế cần dịch trong tài liệu, **không tính theo số trang**. Danh mục tài liệu tham khảo, công thức, số trang được giữ nguyên nên không bị tính.
-- Để dễ hình dung, quy đổi **1 trang A4 chuẩn ≈ 3.000 ký tự** (khoảng 450–500 từ tiếng Anh). Sách giáo khoa y khoa khổ lớn 2 cột thường có 4.000–6.000 ký tự/trang, tức tương đương 1,5–2 trang A4.
-- Lệnh `estimate` (nút **💰 Ước tính** trên giao diện) cho ra `a4_equivalent_pages` và khoảng chi phí của từng file cụ thể.
+- Chi phí được tính theo **toàn văn (full text)**, cụ thể là số ký tự thực tế cần dịch, **không tính theo trang**. Danh mục tài liệu tham khảo, công thức và số trang được giữ nguyên nên không bị tính. Đoạn **lặp lại trong tài liệu** và đoạn **khớp 100% bộ nhớ dịch đã chứng nhận** cũng không tốn token.
+- Để dễ hình dung, quy đổi **1 trang A4 ≈ 3.000 ký tự** (khoảng 450–500 từ tiếng Anh). Sách y khoa khổ lớn 2 cột tương đương khoảng 1,5–2 trang A4/trang.
+- Mục **📊 Phân tích tài liệu** (kiểu SDL Trados) cho biết số từ, số trang A4 quy đổi, phân bổ theo mức khớp và **số từ quy đổi** (weighted), cùng dự báo chi phí và thời gian theo từng hồ sơ.
 
-Ước tính với cấu hình **khắt khe** mặc định (Opus, `effort: xhigh`, hiệu đính + biên tập + 2 giám khảo MQM + biên tập toàn văn + đọc morat bằng hình ảnh):
+## 3. Hồ sơ chất lượng / chi phí và dự báo (1 trang A4 = 3.000 ký tự)
 
-| Khối lượng | Chi phí ước tính |
+| Hồ sơ | Model | Quy trình | Chi phí / trang A4 | 1.000 trang A4: chi phí | 1.000 trang A4: thời gian (luồng mặc định) | … với 32 luồng |
+|---|---|---|---|---|---|---|
+| **Bản thô nhanh** | Haiku 5.5, effort low | Chỉ dịch + kiểm tra máy + thuật ngữ toàn văn | ~0,001–0,002 USD | ~1–2 USD | 6–14 phút (32 luồng) | 6–14 phút |
+| **Tiết kiệm** | Sonnet 5.5, medium | Dịch, biên tập, 1 giám khảo, kiểm toán trung thành, biên tập toàn văn | ~0,10–0,21 USD | ~95–205 USD | 2–4,5 giờ (12 luồng) | 45 phút–1 giờ 45 phút |
+| **Cân bằng** | Opus 5.5, high | + hiệu đính chuyên môn, đọc morat bằng hình ảnh 1 vòng | ~0,30–0,64 USD | ~300–645 USD | 9–21 giờ (8 luồng) | 2,3–5,2 giờ |
+| **Xuất bản cao cấp** (mặc định) | Opus 5.5, xhigh | Đầy đủ: 2 giám khảo, 3 vòng, đọc morat 2 vòng | ~0,46–0,99 USD | ~465–995 USD | 16–37 giờ (6 luồng) | 3–7 giờ |
+
+- Đây là **dự báo ban đầu**, chưa đo trên tài liệu thật. Sau mỗi lần dịch, công cụ **tự đo** tốc độ thực tế để hiệu chỉnh dự báo.
+- Dùng mục **🎯 Hiệu chuẩn** trên 10–20 trang mẫu để có **số đo thật** cho từng hồ sơ: điểm MQM, **xác suất đạt chuẩn kèm khoảng tin cậy 95%**, chi phí và thời gian mỗi trang A4. Kết quả này hiển thị ngay khi chọn hồ sơ cho dự án mới.
+- **"Bản thô → nâng cấp":** dịch bản thô trước để đọc và duyệt nhanh, sau đó chạy hồ sơ cao hơn trên cùng tài liệu. Hồ sơ cao hơn **dùng lại bản thô làm điểm xuất phát** (bỏ bước dịch lại từ đầu) rồi đi tiếp hiệu đính, biên tập, giám khảo và kiểm toán.
+
+### Có dịch được 1.000 trang trong 5 phút không?
+- **Bản thô: gần được.** Ước tính 6–14 phút với 32 luồng song song. Muốn xuống khoảng 5 phút cần khoảng 50–100 luồng, tức hạn mức API rất cao. Nếu hạn mức thấp, API trả lỗi giới hạn và công cụ tự chờ rồi thử lại, nên thời gian dài hơn.
+- **Bản xuất bản chuẩn: không.** Mỗi đoạn phải qua 6–9 lượt xử lý tuần tự: dịch → hiệu đính → biên tập → 2 giám khảo → kiểm toán → (sửa, chấm lại) → đọc morat. Với 32 luồng, cần khoảng 3–7 giờ cho 1.000 trang.
+- **Cách làm hiệu quả nhất:** bản thô trong vài phút để đọc và duyệt nội dung, rồi nâng cấp chạy nền (qua đêm). Hàng đợi cho phép theo dõi, tạm dừng và tiếp tục.
+
+## 4. Năng lực xử lý (đo thực tế trên máy 4 nhân, phần chạy trên máy, chưa tính thời gian chờ API)
+
+| Hạng mục | Kết quả đo |
 |---|---|
-| 1 trang A4 (3.000 ký tự) | ~0,4–0,8 USD |
-| Sách 300 trang A4 | ~115–250 USD |
-| Sách 500 trang A4 | ~190–410 USD |
+| Phân tích bố cục 1.000 trang (7,4 MB) | ~7 giây, ~770 MB RAM |
+| Phân tích kiểu Trados 1.000 trang | ~7 giây |
+| Toàn bộ quy trình 1.000 trang (API giả lập): dàn trang song song, đọc ảnh trang, báo cáo | ~2,7 phút, ~0,9 GB RAM |
+| OCR trang scan | ~0,6 giây/trang (song song 4 nhân), tức ~10 phút cho 1.000 trang scan |
 
-Đây là ước lượng ban đầu, chưa đo trên tài liệu thật. Chi phí thực tế được ghi trong báo cáo sau mỗi lần dịch. Về sau, bộ nhớ dịch và prompt caching sẽ giảm chi phí cho các sách cùng chuyên ngành.
+- **Kích thước file:** giao diện nhận file tới **2 GB mỗi file**. Phần xử lý trên máy chạy theo dòng chảy (không nạp toàn bộ ảnh vào RAM), nên sách 1.000–3.000 trang hoặc file vài trăm MB vẫn chạy được trên máy 8–16 GB RAM.
+- **Nhiều file cùng lúc:** tải nhiều file vào **hàng đợi**. Mặc định xử lý 1 tài liệu một lúc, và mỗi tài liệu đã chạy đa luồng bên trong. Có thể tăng `queue.parallel_jobs` nếu hạn mức API cho phép.
+- **Giới hạn thực sự là hạn mức API** (số yêu cầu và số token mỗi phút), không phải máy. Tăng `translation.workers` theo hạn mức của tài khoản.
 
-## 3. Thời gian dịch
+## 5. Chọn nhà cung cấp AI (Claude, OpenAI, Gemini…)
 
-Mỗi đoạn văn phải đi qua 6–8 lượt xử lý của Claude: dịch, hiệu đính, biên tập, 2 giám khảo, có thể thêm vòng sửa và chấm lại. Sau đó còn biên tập toàn văn và đọc morat từng trang. Vì vậy thời gian chủ yếu phụ thuộc vào **tốc độ sinh chữ của model** và **số luồng song song** mà hạn mức API cho phép.
+- Các model hàng đầu của cả ba hãng đều dịch Anh → Việt tốt. Khác biệt cụ thể với **sách y khoa của bạn** chỉ đo được bằng **thử nghiệm mù trên chính tài liệu của bạn**, không nên dựa vào bảng xếp hạng chung.
+- MedTrans hiện xây trên Claude vì các lý do sau:
+  - JSON có cấu trúc chặt (máy cưỡng chế được từng câu);
+  - suy luận thích ứng;
+  - tra cứu web tích hợp;
+  - đọc hình ảnh (đọc morat, sửa OCR);
+  - prompt caching;
+  - ngữ cảnh 1 triệu token.
 
-Ước tính với 3 luồng song song (`translation.workers: 3`), cấu hình khắt khe:
+  Kiến trúc đã tách lớp gọi model (`llm.provider`), nên có thể bổ sung module OpenAI/Gemini nếu cần.
+- **Đề xuất:** dùng chức năng **Hiệu chuẩn** (cùng một giám khảo tham chiếu, cùng mẫu) để so sánh khách quan. Nếu muốn so thêm OpenAI/Gemini, cần thêm module kết nối và API key của hãng đó; kết quả sẽ hiển thị trong cùng bảng hiệu chuẩn.
 
-| Khối lượng | Thời gian ước tính |
-|---|---|
-| 1 trang A4 | ~2–4,5 phút |
-| 100 trang A4 | ~3,3–7,5 giờ |
-| 500 trang A4 | ~16–37 giờ (có thể chạy qua đêm, dừng và tiếp tục được) |
+## 6. Lộ trình tối ưu
 
-- Tăng `workers` lên 6–8 (nếu hạn mức API đủ) thì thời gian giảm gần một nửa.
-- `effort: high` thay cho `xhigh` nhanh hơn khoảng 25%. `effort: max` chậm hơn khoảng 35%.
-- **Ước tính tự hiệu chỉnh:** sau mỗi lần dịch, công cụ đo tốc độ thực tế trên máy và tài khoản của bạn. Lần ước tính sau dùng số đo này (trường `time_basis` cho biết đang dùng số đo hay ước lượng mặc định).
-- Trong khi dịch, thanh tiến trình hiển thị **thời gian còn lại** cho từng công đoạn.
-
-## 4. Lộ trình tối ưu (sau khi chất lượng đã ổn định)
-
-1. Chạy 2–3 cuốn để tích luỹ số đo thực tế: chi phí và thời gian từng công đoạn, điểm MQM, tỉ lệ đạt chuẩn.
-2. Thử hạ từng nấc trên một chương mẫu và so điểm MQM với bản khắt khe:
-   - `effort` xhigh → high;
-   - 2 giám khảo → 1;
-   - tắt đọc morat bằng hình ảnh cho các trang chỉ có chữ.
-
-   Chỉ giữ thay đổi nào không làm giảm điểm.
-3. Khi bộ nhớ dịch và từ điển đã giàu, các sách cùng chuyên ngành sẽ rẻ và nhanh hơn một cách tự nhiên.
-4. Có thể dùng **Batch API** (giảm 50% giá, trả kết quả trong vòng tối đa 24 giờ) cho những sách không gấp. Đây là hướng phát triển tiếp theo.
+1. Hiệu chuẩn 10–20 trang mẫu mỗi chuyên ngành với 3 hồ sơ (Tiết kiệm / Cân bằng / Cao cấp).
+2. Chọn hồ sơ có **xác suất đạt chuẩn** đủ cao với chi phí thấp nhất. Ví dụ: nếu "Cân bằng" đạt khoảng 95% (KTC95 90–98%) và rẻ hơn khoảng 35%, dùng hồ sơ này cho sách phổ thông và giữ "Cao cấp" cho phần lâm sàng/dược.
+3. Bộ nhớ dịch và kho thuật ngữ càng giàu thì sách sau càng rẻ và nhanh hơn (phần lặp lại và khớp 100% không tốn token).
+4. Hướng tiếp theo: Batch API (giảm 50% giá, không gấp) cho hồ sơ nâng cấp chạy qua đêm.

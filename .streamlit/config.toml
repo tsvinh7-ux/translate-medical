@@ -10,5 +10,8 @@ textColor = "#1D1D1F"
 address = "localhost"
 maxUploadSize = 2000
 
+[client]
+toolbarMode = "minimal"
+
 [browser]
 gatherUsageStats = false

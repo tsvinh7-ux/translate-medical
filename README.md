@@ -18,6 +18,11 @@ Công cụ chạy **trên máy của bạn (localhost)** và gọi **Claude API*
 | 11 | Tiếng Việt 100%, giữ bố cục PDF | Xoá chữ gốc nhưng giữ nền, hình, đường kẻ, rồi đặt chữ Việt đúng vị trí, đúng cỡ chữ, màu, căn lề. Thứ tự đọc đúng với trang 2 cột |
 | 12 | Chạy localhost | Giao diện web `http://localhost:8501` và dòng lệnh. Chỉ cần mạng để gọi API |
 | ➕ | Cặp ngôn ngữ | Anh → Việt hoàn thiện. Kiến trúc module cho phép thêm ngôn ngữ nguồn khác → Việt, xem [docs/THEM_NGON_NGU.md](docs/THEM_NGON_NGU.md) |
+| ➕ | Termbase dự án | Quét toàn văn → xuất Excel/TBX để chuyên gia kiểm tra → nhập lại → **khoá** → dịch chính thức thống nhất (có chốt chặn tự dừng) |
+| ➕ | Chế tài trung thành | Máy đánh số từng câu; kiểm toán viên độc lập phải ánh xạ đủ; **thiếu câu, thêm ý, đổi nghĩa, sai trình tự đều bị chặn chứng nhận** và buộc dịch lại |
+| ➕ | Phân tích kiểu Trados | Số trang/từ/ký tự, lặp lại, mức khớp bộ nhớ dịch (100%, 95–99%…), thuật ngữ, số từ quy đổi, dự báo theo hồ sơ; xuất Excel |
+| ➕ | Hồ sơ chất lượng/chi phí | Bản thô nhanh / Tiết kiệm / Cân bằng / Xuất bản cao cấp. **Hiệu chuẩn** trên mẫu của bạn cho ra xác suất đạt chuẩn kèm khoảng tin cậy 95% |
+| ➕ | Hàng đợi chạy nền | Nhiều file, theo dõi trực tiếp, tạm dừng/tiếp tục/huỷ, tự chạy tiếp sau khi khởi động lại; OCR và dàn trang song song đa nhân |
 | ➕ | Quy trình xuất bản | Chuẩn bị thuật ngữ toàn văn → dịch → **hiệu đính chuyên môn** → **biên tập ngôn ngữ** → hội đồng giám khảo MQM → **biên tập toàn văn** → dàn trang → **đọc morat** (so ảnh trang) → sửa morat. Chi tiết trong [docs/QUY_TRINH_CHAT_LUONG.md](docs/QUY_TRINH_CHAT_LUONG.md) |
 | ➕ | PDF scan | Tự nhận diện trang scan, OCR theo đoạn văn, Claude sửa lỗi OCR, đi qua cùng quy trình chất lượng, giữ định dạng cơ bản |
 
@@ -52,15 +57,29 @@ python -m medtrans ui
 
 ## Sử dụng
 
-### Giao diện web
-- **📄 Dịch tài liệu:** tải PDF lên, chọn chuyên ngành và phạm vi trang, *Ước tính* (chi phí và thời gian), rồi *Bắt đầu dịch*. Trong lúc chạy, giao diện hiển thị từng công đoạn xuất bản và thời gian còn lại. Khi xong, tải về PDF tiếng Việt và báo cáo song ngữ.
-- **✍️ Duyệt bản dịch** (tuỳ chọn): xem các đoạn chưa đạt chuẩn, sửa tay nếu muốn, rồi *Dựng lại PDF* (không tốn token).
-- **📚 Thuật ngữ:** nhập file, thêm nhanh, xem thuật ngữ đang tích luỹ bằng chứng hoặc đã tự duyệt, xuất CSV.
-- **🧠 Bộ nhớ dịch:** nhập và xuất TMX hoặc bảng song ngữ.
-- **⚙️ Cấu hình:** quy ước văn phong theo chuyên ngành.
+### Giao diện web (10 màn hình)
+| Nhóm | Màn hình | Chức năng |
+|---|---|---|
+| Vận hành | 🏠 Tổng quan | KPI: dự án, khối lượng, điểm MQM, tỉ lệ đạt chuẩn, kho dữ liệu, chi phí |
+| | ➕ Dự án mới | Tải nhiều file, chọn ngôn ngữ/chuyên ngành/phạm vi trang, **chọn hồ sơ** (thẻ dự báo chi phí, thời gian, xác suất đạt chuẩn), chốt chặn termbase |
+| | ⏱️ Hàng đợi & tiến độ | Tiến độ trực tiếp, tạm dừng/tiếp tục/huỷ/chạy lại, tải kết quả |
+| Chất lượng | 📊 Phân tích tài liệu | Thống kê kiểu SDL Trados, xuất Excel |
+| | 🔒 Termbase dự án | Kiểm tra trực tiếp hoặc trao đổi file với chuyên gia → khoá → dịch chính thức |
+| | ✍️ Duyệt & can thiệp | Xem đoạn chưa đạt chuẩn, sửa tay (tuỳ chọn), dựng lại PDF |
+| | 🎯 Hiệu chuẩn | So sánh hồ sơ trên mẫu: MQM, xác suất đạt chuẩn (KTC95), chi phí, thời gian |
+| Dữ liệu | 📚 Kho thuật ngữ · 🧠 Bộ nhớ dịch | Thuật ngữ chuẩn, bằng chứng tự duyệt; nhập/xuất TMX |
+| Hệ thống | ⚙️ Cấu hình | Trạng thái API key, Tesseract, CPU; quy ước chuyên ngành |
+
+Chạy thử giao diện không cần API key: `MEDTRANS_PROVIDER=mock python -m medtrans ui`.
 
 ### Dòng lệnh
 ```bash
+python -m medtrans analyze sach.pdf --domain cardiology                 # phân tích kiểu Trados → Excel
+python -m medtrans terms scan sach.pdf --domain cardiology              # quét thuật ngữ → termbase Excel/TBX
+python -m medtrans terms lock sach.pdf sach_termbase.xlsx --domain cardiology   # khoá termbase đã kiểm tra
+python -m medtrans calibrate mau.pdf --pages 1-10 --profiles economy,balanced,premium
+python -m medtrans translate sach.pdf --profile draft                   # bản thô nhanh
+python -m medtrans translate sach.pdf --profile premium                 # nâng cấp (dùng lại bản thô)
 python -m medtrans estimate sach.pdf                                  # ước tính chi phí
 python -m medtrans translate sach.pdf --domain cardiology --pages 1-20 # dịch thử 20 trang
 python -m medtrans translate sach.pdf --domain cardiology             # dịch toàn bộ (tự tiếp tục nếu bị ngắt)
@@ -103,7 +122,13 @@ medtrans/
   pdf_render.py    dựng PDF tiếng Việt giữ bố cục
   report.py        báo cáo song ngữ HTML
   tm.py            nhập/xuất TMX
-app.py             giao diện web localhost
+  analysis.py      phân tích kiểu SDL Trados
+  fidelity.py      chế tài trung thành (đánh số câu, cưỡng chế đủ câu, đúng trình tự)
+  termbase.py      termbase dự án: xuất Excel/TBX, nhập, khoá
+  calibrate.py     hiệu chuẩn hồ sơ (MQM, xác suất đạt chuẩn, KTC95)
+  jobs.py          hàng đợi chạy nền (tạm dừng/tiếp tục/huỷ, tự phục hồi)
+app.py             giao diện web localhost (điều hướng)
+ui/                màn hình, hệ thống thiết kế giao diện
 tests/             kiểm thử (pytest)
 ```
 

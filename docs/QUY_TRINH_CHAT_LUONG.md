@@ -32,6 +32,30 @@ Mỗi công đoạn đều **có điểm lưu**. Nếu bị ngắt, chạy lại
 | Độ dài bất thường | cảnh báo | Nghi thiếu hoặc thừa ý |
 | Thẻ định dạng | cảnh báo | Mất cân bằng chữ đậm, nghiêng, chỉ số trên/dưới |
 
+## 2b. Chế tài trung thành: dịch đúng, dịch đủ, đúng trình tự, không thêm, không bớt
+
+| Cơ chế | Cách cưỡng chế | Vi phạm thì sao |
+|---|---|---|
+| **Phủ kín 100% đoạn** | Mỗi khối chữ trong PDF là một đơn vị có mã riêng. AI bỏ sót mã thì máy gọi dịch lại riêng đoạn đó | Không có đoạn nào bị "rơi" |
+| **Đánh số từng câu** | Máy (không phải AI) tách đoạn nguồn thành các câu đánh số. Kiểm toán viên AI độc lập **phải ánh xạ đủ mọi số câu** sang bản dịch | Câu không được ánh xạ thì **máy coi là bỏ sót** (critical) |
+| **Không đổi nghĩa** | Phán quyết từng câu: ok / partial / altered / omitted | altered/omitted là **critical**; partial là **major** |
+| **Không thêm** | Kiểm toán viên trích nguyên văn mọi phần bản dịch không có trong bản gốc | **major**, buộc xoá phần thêm |
+| **Đúng trình tự** | Vị trí các câu trong bản dịch phải tăng dần theo số câu | Sai trình tự là **major** |
+| **Số liệu, liều, đơn vị, phủ định** | Máy so lại từng con số, từng cặp số–đơn vị, từ phủ định | Lỗi thì dịch lại có chỉ dẫn |
+| **Đếm câu** | Số câu bản dịch quá ít so với bản gốc → nghi bỏ sót | Chặn chứng nhận (`strict_certify`) |
+| **Mã giữ chỗ, ký hiệu, thuật ngữ khoá** | Máy kiểm tra đủ và đúng | Chặn chứng nhận |
+
+Mọi vi phạm được đưa vào vòng chấm MQM. Vòng chấm buộc **dịch lại có chỉ dẫn**, rồi kiểm toán và chấm lại (tối đa `eval_rounds` vòng). Đoạn còn vi phạm **không bao giờ được chứng nhận**: nó bị đánh dấu "còn lỗi nặng", nằm đầu báo cáo, và không vào bộ nhớ dịch.
+
+## 2c. Termbase dự án: thống nhất thuật ngữ trước khi dịch chính thức
+
+1. **Quét:** máy đọc **toàn văn**, gom thuật ngữ từ kho chuẩn và thuật ngữ mới. Mỗi thuật ngữ kèm tần suất, ngữ cảnh, các phương án dịch, độ tin cậy và dẫn chứng tra cứu web.
+2. **Xuất termbase** ra Excel (có cột "Tiếng Việt chốt" và "Trạng thái Duyệt/Loại", hướng dẫn kèm) và TBX (cho Trados MultiTerm/memoQ). Có thể gửi cho chuyên gia bên ngoài kiểm tra.
+3. **Nhập lại và khoá:** thuật ngữ duyệt vào kho chuẩn với **ưu tiên cao nhất** và được áp dụng **bắt buộc** ở từng đoạn. Thuật ngữ "Loại" không được áp cho dự án đó.
+4. **Dịch chính thức:** mọi đoạn đều nhận đúng thuật ngữ đã khoá. Đoạn nào lệch thuật ngữ thì bị chặn chứng nhận và sửa ở bước biên tập toàn văn.
+
+Bật **chốt chặn** (`terminology.require_lock: true`, hoặc tick trên giao diện) để hệ thống **tự dừng sau bước quét**, chờ termbase được khoá rồi mới dịch.
+
 ## 3. Đánh giá chuẩn MQM bởi giám khảo độc lập
 
 MQM (Multidimensional Quality Metrics) là khung đánh giá chất lượng dịch thuật quốc tế, được dùng trong ngành dịch chuyên nghiệp và trong các kỳ đánh giá dịch máy WMT. Giám khảo là một lượt gọi Claude riêng. Lượt này chỉ thấy bản gốc và bản dịch, không thấy quá trình dịch, và được yêu cầu chấm khắt khe.

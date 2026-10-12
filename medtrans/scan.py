@@ -10,8 +10,13 @@ import logging
 import re
 import statistics
 
+import os
+
 import pymupdf
 from PIL import Image
+
+# OCR chạy song song nhiều tiến trình → mỗi tiến trình Tesseract chỉ dùng 1 luồng (tránh tranh chấp CPU)
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
 
 log = logging.getLogger("medtrans.scan")
 
@@ -134,8 +139,12 @@ def _merge_overlapping(groups: list[list[dict]]) -> list[list[dict]]:
 
 def page_blocks(page: pymupdf.Page, pno: int, lang: str, dpi: int = 300):
     """OCR một trang scan → list[TextBlock] (toạ độ điểm PDF)."""
+    return blocks_from_image(render_page(page, dpi), pno, lang, dpi)
+
+
+def blocks_from_image(img: Image.Image, pno: int, lang: str, dpi: int = 300):
+    """OCR ảnh trang đã render → list[TextBlock]. An toàn khi chạy song song (không dùng đối tượng PyMuPDF)."""
     from .pdf_extract import TextBlock
-    img = render_page(page, dpi)
     k = 72.0 / dpi
     blocks = []
     for i, p in enumerate(ocr_paragraphs(img, lang)):
