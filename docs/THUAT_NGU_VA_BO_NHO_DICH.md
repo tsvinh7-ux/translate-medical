@@ -51,31 +51,37 @@ Khi AI dịch không chắc một thuật ngữ, hệ thống chạy các bướ
 
 Danh sách nguồn ưu tiên nằm ở `translation.web_preferred_domains` trong `config.yaml`.
 
-## 3. Làm giàu dữ liệu sau mỗi tài liệu: vòng lặp học
+## 3. Tự làm giàu dữ liệu sau mỗi tài liệu (không cần người duyệt)
 
 ```
- Dịch tài liệu 1 ──► thuật ngữ AI tra cứu + thuật ngữ AI tự trích ──► (bạn duyệt) ──► Từ điển chuẩn
-       │                                                                                   │
-       └──► các đoạn điểm ≥ 85 / đã duyệt tay ──► Bộ nhớ dịch (TM) ◄────────────────────────┘
-                                                        │
- Dịch tài liệu 2 cùng chuyên ngành ◄────────────────────┘  (khớp 100% = 0 token; câu tương tự = tham khảo)
+ Dịch tài liệu 1 ─► Giám khảo MQM chấm từng đoạn ─► đoạn ĐẠT CHUẨN (≥95, không lỗi nặng)
+       │                                               │
+       │                                               ├─► Bộ nhớ dịch "đã duyệt" (dùng lại 0 token)
+       │                                               └─► trích cặp thuật ngữ + đếm bằng chứng
+       │                                                         │ đủ bằng chứng (≥2 đoạn đạt chuẩn)
+       │                                                         ▼
+       │                                       Giám khảo kiểm định thuật ngữ → "standard" → TỰ DUYỆT
+       ▼
+ Dịch tài liệu 2 cùng chuyên ngành: từ điển và bộ nhớ dịch giàu hơn → nhất quán hơn, rẻ hơn
 ```
 
-Sau mỗi tài liệu, hệ thống có các nguồn sau để làm giàu dữ liệu:
+- **Nguồn đề xuất thuật ngữ:** thuật ngữ trích từ các đoạn **đạt chuẩn MQM**, thuật ngữ AI đề xuất khi đọc tổng quan, và thuật ngữ tra cứu web.
+- **Bằng chứng** là số đoạn đạt chuẩn dùng nhất quán đúng cặp thuật ngữ đó. Số này được cộng dồn qua nhiều tài liệu (cột `evidence`).
+- **Tự duyệt** khi đủ `quality.term_min_evidence` bằng chứng và giám khảo kiểm định là `standard` với độ tin cậy ≥ `quality.term_min_confidence`.
+- **Giám khảo đề xuất cách gọi chuẩn hơn:** thuật ngữ được thay bằng cách gọi đó và tích luỹ lại bằng chứng từ đầu. Thuật ngữ sai bị loại.
+- **Thuật ngữ tra web** được tự duyệt khi độ tin cậy ≥ 0,85 và có ≥ 2 nguồn, trong đó ít nhất 1 nguồn uy tín.
+- **Thuật ngữ đã duyệt không bao giờ bị ghi đè tự động.** Trường hợp xung đột được đếm trong thống kê.
+- **Quy ước chuyên ngành:** tab **⚙️ Cấu hình** cho phép ghi chú văn phong riêng cho từng chuyên ngành.
 
-- **Tổng quan tài liệu.** Trước khi dịch, AI đọc phần đầu sách và đề xuất 20–60 thuật ngữ then chốt.
-- **Tra cứu web.** Thuật ngữ khó được tra kèm nguồn dẫn chứng.
-- **Tự học.** Sau khi dịch xong, AI trích các cặp thuật ngữ từ những đoạn đạt điểm cao (`memory.auto_learn_terms`).
-- **Bạn duyệt** trong tab **📚 Thuật ngữ** → *Thuật ngữ đề xuất chờ duyệt*: tick *duyệt* hoặc *loại*. Chỉ thuật ngữ **đã duyệt** mới trở thành chuẩn bắt buộc cho các tài liệu sau. Thuật ngữ đề xuất không bao giờ ghi đè thuật ngữ đã duyệt.
-- **Quy ước chuyên ngành.** Tab **⚙️ Cấu hình** cho phép ghi chú văn phong riêng từng chuyên ngành, ví dụ: *"Tim mạch: dùng 'thuốc chẹn beta', không dùng 'thuốc ức chế beta'"*.
+Bạn vẫn có thể duyệt hoặc loại tay trong tab **📚 Thuật ngữ**, nhưng việc này **không bắt buộc**.
 
 ## 4. Bộ nhớ dịch (Translation Memory) giúp tiết kiệm token
 
-Mỗi đoạn dịch xong được lưu kèm **điểm chất lượng** do AI biên tập chấm. Đoạn bạn sửa tay được lưu với **điểm 100** và đánh dấu đã duyệt.
+Mỗi đoạn dịch xong được lưu kèm **điểm MQM** do giám khảo độc lập chấm. Đoạn **đạt chuẩn** được đánh dấu đã duyệt tự động. Nếu bạn sửa tay, đoạn đó được lưu với điểm 100.
 
 | Tình huống | Hệ thống làm gì | Token |
 |---|---|---|
-| Câu khớp **100%** với TM, điểm ≥ `tm_min_quality` (85) hoặc đã duyệt tay | Dùng lại ngay | **0** |
+| Câu khớp **100%** với TM và đã chứng nhận (điểm ≥ `tm_min_quality` = 95) | Dùng lại ngay | **0** |
 | Câu tương tự **≥ 75%** (`tm_fuzzy_threshold`) | Đưa bản dịch cũ vào prompt làm tham khảo văn phong và thuật ngữ | Ít hơn, nhất quán hơn |
 | Câu mới | Dịch đầy đủ | Bình thường |
 
@@ -88,12 +94,14 @@ Ngoài TM, hệ thống còn tiết kiệm bằng **prompt caching**. Phần hư
 ```
 python -m medtrans tm import ban_dich_cu.tmx --domain cardiology    # từ Trados/memoQ/OmegaT
 python -m medtrans tm import song_ngu.xlsx --domain cardiology      # bảng 2 cột en, vi
-python -m medtrans tm export bo_nho_tim_mach.tmx --domain cardiology
+python -m medtrans tm export bo_nho_tim_mach.tmx --domain cardiology   # chỉ đoạn đạt chuẩn ≥ 95
 python -m medtrans tm stats
 ```
 
 > Nếu bạn đã có bản dịch cũ (bản Word tiếng Việt và bản PDF tiếng Anh tương ứng), hãy căn câu thành bảng 2 cột rồi nhập vào TM. Đây là cách nhanh nhất để hệ thống "học" văn phong nhà xuất bản.
 
-## 5. Tổ chức theo chuyên ngành
+## 5. Tổ chức theo chuyên ngành và ngôn ngữ nguồn
 
 Thuật ngữ và TM được lưu theo `domain`. Khi dịch một tài liệu tim mạch (`--domain cardiology`), hệ thống dùng **thuật ngữ cardiology cộng với general_medicine**. Cách tổ chức này tránh xung đột khi một từ có nghĩa khác nhau giữa các chuyên ngành.
+
+Thuật ngữ và TM cũng được tách theo **ngôn ngữ nguồn** (`src_lang`, mặc định `en`). Khi bổ sung ngôn ngữ khác → Việt (xem [THEM_NGON_NGU.md](THEM_NGON_NGU.md)), mỗi cặp ngôn ngữ có kho dữ liệu riêng.

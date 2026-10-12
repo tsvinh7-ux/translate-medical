@@ -6,6 +6,8 @@ import json
 import re
 from pathlib import Path
 
+STATUS_VI = {"certified": "đạt chuẩn", "done": "đạt", "tm": "từ bộ nhớ dịch", "needs_review": "cần xem",
+             "failed": "lỗi API"}
 ROLE_VI = {"heading": "Tiêu đề", "body": "Nội dung", "caption": "Chú thích", "label": "Nhãn",
            "header_footer": "Đầu/chân trang", "figure_text": "Chữ trong hình"}
 
@@ -17,17 +19,18 @@ def _clean(s: str) -> str:
 def write_report(path: Path, doc_name: str, units: list, summary: dict, brief: dict, decided: list[dict]) -> Path:
     from .rules import restore
     rows = []
-    order = {"needs_review": 0, "failed": 0, "done": 1, "tm": 2}
+    order = {"needs_review": 0, "failed": 0, "done": 1, "certified": 2, "tm": 3}
     for u in sorted(units, key=lambda u: (order.get(u.status, 1), u.page)):
         tgt = restore(u.tgt.replace("⟦¶⟧", " ¶ "), u.mapping)
         issues = "".join(
             f'<li class="{html.escape(i.get("severity", ""))}">{html.escape(i.get("message", ""))}</li>'
             for i in u.issues)
-        cls = "bad" if u.status in ("needs_review", "failed") else ("tm" if u.status == "tm" else "")
+        cls = "bad" if u.status in ("needs_review", "failed") else ("tm" if u.status in ("tm", "certified") else "")
         rows.append(
             f'<tr class="{cls}"><td>{u.page + 1}</td><td>{ROLE_VI.get(u.role, u.role)}<br><small>{u.id}</small></td>'
             f'<td>{_clean(u.plain_src)}</td><td>{_clean(tgt)}</td>'
-            f'<td class="score">{u.score}</td><td><ul>{issues}</ul></td></tr>')
+            f'<td class="score">{u.score}<br><small>{STATUS_VI.get(u.status, u.status)}</small></td>'
+            f'<td><ul>{issues}</ul></td></tr>')
     terms = "".join(
         f'<tr><td>{html.escape(d.get("en", ""))}</td><td>{html.escape(d.get("vi", ""))}</td>'
         f'<td>{html.escape(d.get("source", ""))}</td><td>{html.escape(str(d.get("confidence", "")))}</td>'
@@ -52,8 +55,11 @@ li.info {{ color:var(--mut); }} ul {{ margin:0; padding-left:18px; }} .kpi {{ di
 <p>{html.escape(brief.get("title", ""))} — {html.escape(brief.get("specialty", ""))}</p>
 <div class="kpi">
 <div>Số đoạn: <b>{summary.get("segments")}</b></div>
-<div>Điểm TB: <b>{summary.get("avg_score")}</b>/100</div>
-<div>Cần duyệt: <b>{summary.get("needs_review")}</b></div>
+<div>Điểm MQM TB: <b>{summary.get("avg_score")}</b>/100</div>
+<div>Đạt chuẩn (tự chứng nhận): <b>{summary.get("certified")}</b></div>
+<div>Trang scan: <b>{summary.get("scanned_pages", 0)}</b></div>
+<div>Thuật ngữ tự duyệt: <b>{summary.get("term_enrichment", {}).get("auto_approved", 0)}</b></div>
+<div>Còn lỗi nặng: <b>{summary.get("needs_review")}</b></div>
 <div>Lỗi API: <b>{summary.get("failed")}</b></div>
 <div>Dùng lại từ TM: <b>{summary.get("from_tm")}</b></div>
 <div>Dòng chữ trong hình: <b>{summary.get("image_text_lines")}</b></div>

@@ -133,15 +133,29 @@ def render(src_pdf: str | Path, out_pdf: str | Path, pages: list[PageInfo], tran
         todo = [b for b in p.blocks if not b.keep and translations.get(b.id)]
         if not todo:
             continue
-        for b in todo:
-            for r in b.line_rects:
-                rect = pymupdf.Rect(r)
-                rect.y0 += 0.4
-                rect.y1 -= 0.4
-                page.add_redact_annot(rect, fill=False)
-        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
-                              graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
-                              text=pymupdf.PDF_REDACT_TEXT_REMOVE)
+        native = [b for b in todo if not b.scanned]
+        scanned = [b for b in todo if b.scanned]
+        if native:
+            for b in native:
+                for r in b.line_rects:
+                    rect = pymupdf.Rect(r)
+                    rect.y0 += 0.4
+                    rect.y1 -= 0.4
+                    page.add_redact_annot(rect, fill=False)
+            page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
+                                  graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
+                                  text=pymupdf.PDF_REDACT_TEXT_REMOVE)
+        if scanned:
+            # trang scan: chữ gốc nằm trong ảnh → phủ màu nền lên từng dòng rồi đặt chữ Việt
+            from .scan import background_color
+            covers = []
+            for b in scanned:
+                for r in b.line_rects:
+                    rect = pymupdf.Rect(r)
+                    rect = pymupdf.Rect(rect.x0 - 1.5, rect.y0 - 1.5, rect.x1 + 1.5, rect.y1 + 1.5)
+                    covers.append((rect, background_color(page, rect)))
+            for rect, bg in covers:
+                page.draw_rect(rect, color=None, fill=bg, overlay=True)
         # chuẩn bị khung chữ cho từng khối
         prepared = []
         for b in todo:

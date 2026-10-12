@@ -27,6 +27,8 @@ def cmd_translate(cfg, args) -> None:
     from .translator import Translator
     if args.mock:
         cfg["llm"]["provider"] = "mock"
+    if args.lang:
+        cfg["translation"]["source_lang"] = args.lang
     page_range = None
     if args.pages:
         a, _, b = args.pages.partition("-")
@@ -45,19 +47,21 @@ def cmd_glossary(cfg, args) -> None:
     from .glossary import export_csv, import_file
     db = _db(cfg)
     if args.action == "import":
-        n = import_file(db, args.file, default_domain=args.domain or cfg.get_path("translation.domain"))
+        n = import_file(db, args.file, default_domain=args.domain or cfg.get_path("translation.domain"),
+                        src_lang=args.lang)
         print(f"Đã nhập {n} thuật ngữ.")
     elif args.action == "export":
         n = export_csv(db, args.file, status=None if args.all else "approved")
         print(f"Đã xuất {n} thuật ngữ ra {args.file}")
     elif args.action == "add":
         db.upsert_term(args.en, args.vi, args.domain or cfg.get_path("translation.domain"),
-                       keep_original=args.keep, note=args.note or "")
+                       keep_original=args.keep, note=args.note or "", src_lang=args.lang)
         print("Đã thêm.")
     elif args.action == "list":
-        rows = db.terms(status="candidate" if args.candidates else "approved")
+        rows = db.terms(status="candidate" if args.candidates else "approved", src_lang=args.lang)
         for r in rows[: args.limit]:
-            print(f"#{r['id']:<6} [{r['domain']}] {r['en']}  →  {r['vi']}   ({r['source']}) {r['note'][:80]}")
+            print(f"#{r['id']:<6} [{r['domain']}] {r['en']}  →  {r['vi']}   ({r['source']}, bằng chứng "
+                  f"{r.get('evidence', 0)}) {r['note'][:80]}")
         print(f"... tổng {len(rows)}")
     elif args.action == "approve":
         if args.all:
@@ -80,10 +84,11 @@ def cmd_tm(cfg, args) -> None:
     domain = args.domain or cfg.get_path("translation.domain")
     if args.action == "import":
         p = Path(args.file)
-        n = tm.import_tmx(db, p, domain) if p.suffix.lower() == ".tmx" else tm.import_bilingual_table(db, p, domain)
+        n = tm.import_tmx(db, p, domain, src_lang=args.lang) if p.suffix.lower() == ".tmx" else \
+            tm.import_bilingual_table(db, p, domain, src_lang=args.lang)
         print(f"Đã nhập {n} cặp câu vào bộ nhớ dịch.")
     elif args.action == "export":
-        n = tm.export_tmx(db, args.file, domain=args.domain, min_quality=args.min_quality)
+        n = tm.export_tmx(db, args.file, domain=args.domain, min_quality=args.min_quality, src_lang=args.lang)
         print(f"Đã xuất {n} cặp câu ra {args.file}")
     elif args.action == "stats":
         print(json.dumps(db.tm_stats(), ensure_ascii=False, indent=2))
@@ -116,6 +121,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--pages", help="Chỉ dịch các trang, ví dụ 1-10")
     p.add_argument("--out", help="Thư mục kết quả")
     p.add_argument("--mock", action="store_true", help="Chạy thử không gọi API")
+    p.add_argument("--lang", help="Ngôn ngữ nguồn (mặc định theo config, hiện có: en)")
     p.set_defaults(fn=cmd_translate)
 
     p = sub.add_parser("estimate", help="Ước tính chi phí")
@@ -134,13 +140,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--all", action="store_true")
     p.add_argument("--ids", nargs="*", default=[])
     p.add_argument("--limit", type=int, default=200)
+    p.add_argument("--lang", default="en", help="Ngôn ngữ nguồn của thuật ngữ")
     p.set_defaults(fn=cmd_glossary)
 
     p = sub.add_parser("tm", help="Bộ nhớ dịch (TMX)")
     p.add_argument("action", choices=["import", "export", "stats"])
     p.add_argument("file", nargs="?")
     p.add_argument("--domain")
-    p.add_argument("--min-quality", type=int, default=85)
+    p.add_argument("--min-quality", type=int, default=95)
+    p.add_argument("--lang", default="en", help="Ngôn ngữ nguồn")
     p.set_defaults(fn=cmd_tm)
 
     p = sub.add_parser("domain", help="Quy ước văn phong theo chuyên ngành")

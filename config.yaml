@@ -13,6 +13,7 @@ llm:
   timeout_seconds: 900
 
 translation:
+  source_lang: en              # ngôn ngữ nguồn (hiện hoàn thiện: en). Đích luôn là tiếng Việt
   domain: general_medicine     # chuyên ngành mặc định (cardiology, oncology, pharmacology...)
   batch_chars: 6000            # số ký tự nguồn gộp vào một lần gọi API
   workers: 3                   # số luồng dịch song song (theo trang)
@@ -36,12 +37,26 @@ translation:
     - ncbi.nlm.nih.gov
     - medlineplus.gov
 
+quality:                       # đánh giá chuẩn MQM & tự chứng nhận (không cần người duyệt)
+  independent_eval: true       # giám khảo AI độc lập chấm từng đoạn theo khung MQM
+  eval_rounds: 2               # chấm → sửa lỗi critical/major → chấm lại
+  certify_score: 95            # điểm MQM tối thiểu để TỰ CHỨNG NHẬN đoạn dịch vào bộ nhớ dịch
+  term_min_evidence: 2         # số đoạn đạt chuẩn dùng nhất quán thuật ngữ trước khi kiểm định để tự duyệt
+  term_min_confidence: 0.85    # độ tin cậy tối thiểu của giám khảo khi kiểm định thuật ngữ
+  web_term_min_confidence: 0.85  # thuật ngữ tra web được tự duyệt khi đủ tin cậy...
+  web_term_min_sources: 2        # ...và có ít nhất N nguồn (trong đó ≥1 nguồn uy tín)
+
 memory:
   db_path: workspace/medtrans.db
   tm_reuse_threshold: 100      # % khớp để dùng lại bản dịch cũ KHÔNG gọi API (100 = khớp tuyệt đối)
   tm_fuzzy_threshold: 75       # % khớp để đưa bản dịch cũ vào làm tham khảo
-  tm_min_quality: 85           # chỉ tái sử dụng bản dịch có điểm chất lượng >= ngưỡng này
-  auto_learn_terms: true       # tự trích thuật ngữ mới sau mỗi tài liệu (chờ bạn duyệt)
+  tm_min_quality: 95           # chỉ tái sử dụng đoạn đã chứng nhận (điểm MQM >= ngưỡng)
+  auto_enrich: true            # tự làm giàu từ điển thuật ngữ sau mỗi tài liệu
+
+scan:                          # PDF scan (trang là ảnh)
+  enabled: true                # tự nhận diện trang scan và OCR theo đoạn văn
+  dpi: 300                     # độ phân giải OCR
+  ocr_correct: true            # Claude đối chiếu ảnh để sửa lỗi OCR trước khi dịch (khuyến nghị)
 
 layout:
   font_dir: auto               # auto = tự tìm font Unicode trên máy; hoặc đường dẫn thư mục font

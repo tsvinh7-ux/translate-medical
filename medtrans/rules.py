@@ -51,9 +51,13 @@ class Rules:
         return "\n".join(lines)
 
 
-@lru_cache(maxsize=4)
-def load_rules(path: str | None = None) -> Rules:
-    raw = yaml.safe_load(Path(path or RULES_PATH).read_text(encoding="utf-8")) or {}
+@lru_cache(maxsize=8)
+def load_rules(path: str | None = None, lang: str = "en") -> Rules:
+    """Quy tắc riêng cho ngôn ngữ nguồn: data/preserve_rules.<lang>.yaml (nếu có), mặc định preserve_rules.yaml."""
+    if path is None:
+        specific = RULES_PATH.with_name(f"preserve_rules.{lang}.yaml")
+        path = str(specific if specific.exists() else RULES_PATH)
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     protect = [(r["name"], re.compile(r["pattern"], re.IGNORECASE if r["name"] in ("doi", "url") else 0))
                for r in raw.get("protect", [])]
     must_keep = [(r["name"], re.compile(r["pattern"]), bool(r.get("only_italic")))

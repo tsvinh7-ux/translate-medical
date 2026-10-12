@@ -8,14 +8,13 @@ from pathlib import Path
 
 import pymupdf
 
+from .languages import EN, LangProfile
+
 MATH_FONT_HINTS = ("CMMI", "CMSY", "CMEX", "MSAM", "MSBM", "SYMBOL", "MTEXTRA", "MT EXTRA", "CAMBRIAMATH",
                    "CAMBRIA MATH", "STIXMATH", "LMMATH", "EUCLID", "MATHEMATICALPI", "RSFS", "ESINT", "WASY",
                    "MATH")
 SERIF_HINTS = ("TIMES", "SERIF", "MINION", "GEORGIA", "GARAMOND", "CAMBRIA", "PALATINO", "BOOKMAN", "ROMAN",
                "CENTURY", "BASKERVILLE", "CHARTER", "UTOPIA", "NIMBUSROM", "CMR", "LMROMAN", "SABON", "STIX")
-CAPTION_RE = re.compile(r"^\s*(Figure|Fig\.|Table|Box|Chart|Graph|Algorithm|Panel|Exhibit)\s*[\dA-Z]", re.I)
-REFERENCES_RE = re.compile(r"^\s*(\d+\.?\s*)?(References|Bibliography|Works Cited|Literature Cited|"
-                           r"Suggested Reading|Further Reading)\s*$", re.I)
 SENT_END_RE = re.compile(r"[.!?:;)\]”\"']\s*$")
 ALLOWED_TAGS = ("b", "i", "sup", "sub")
 
@@ -42,6 +41,7 @@ class TextBlock:
     line_rects: list[tuple[float, float, float, float]] = field(default_factory=list)
     chain_next: str | None = None   # id khối tiếp nối câu (qua cột/trang)
     chain_prev: str | None = None
+    scanned: bool = False           # khối lấy từ OCR trang scan
 
 
 @dataclass
@@ -62,6 +62,7 @@ class PageInfo:
     blocks: list[TextBlock]
     images: list[ImageItem]
     obstacles: list[tuple[float, float, float, float]] = field(default_factory=list)  # hình, khung vẽ
+    scanned: bool = False
 
 
 def _is_math_font(name: str) -> bool:
@@ -242,13 +243,25 @@ def _reading_order(blocks: list[TextBlock], page_w: float) -> list[TextBlock]:
             return "span"
         return "L" if (b.bbox[0] + b.bbox[2]) / 2 < mid else "R"
 
+    def has_neighbour(b: TextBlock) -> bool:
+        other = "R" if side(b) == "L" else "L"
+        return any(side(o) == other and o.bbox[1] < b.bbox[3] - 1 and o.bbox[3] > b.bbox[1] + 1
+                   for o in blocks if o is not b)
+
     def is_full(b: TextBlock) -> bool:
         s = side(b)
         if s == "span":
             return True
-        other = "R" if s == "L" else "L"
-        return not any(side(o) == other and o.bbox[1] < b.bbox[3] - 1 and o.bbox[3] > b.bbox[1] + 1
-                       for o in blocks if o is not b)
+        if has_neighbour(b):
+            return False
+        # đoạn tiếp nối ngay dưới một đoạn thuộc cột (cùng lề trái, khoảng cách nhỏ) → vẫn thuộc cột đó
+        for o in blocks:
+            if o is b or side(o) != s:
+                continue
+            gap = b.bbox[1] - o.bbox[3]
+            if -1 <= gap < max(1.6 * b.font_size, 6) and abs(o.bbox[0] - b.bbox[0]) < 6 and has_neighbour(o):
+                return False
+        return True
 
     ordered: list[TextBlock] = []
     band: list[TextBlock] = []
@@ -268,26 +281,46 @@ def _reading_order(blocks: list[TextBlock], page_w: float) -> list[TextBlock]:
     return ordered
 
 
-def extract(pdf_path: str | Path, min_image_px: int = 120) -> list[PageInfo]:
+def extract(pdf_path: str | Path, min_image_px: int = 120, lang: LangProfile = EN, ocr_scans: bool = True,
+            scan_dpi: int = 300, page_numbers: set[int] | None = None) -> list[PageInfo]:
+    from . import scan
     doc = pymupdf.open(str(pdf_path))
     pages: list[PageInfo] = []
     sizes_all: list[float] = []
+    warned = False
     for pno, page in enumerate(doc):
+        if page_numbers is not None and pno not in page_numbers:
+            continue
         w, h = page.rect.width, page.rect.height
-        raw = page.get_text("dict")
         blocks = []
-        for i, rb in enumerate(raw["blocks"]):
-            if rb.get("type") != 0:
-                continue
-            b = _build_block(rb, pno, i, w, h)
-            if b:
-                blocks.append(b)
-                sizes_all.extend([b.font_size] * max(1, len(b.plain) // 20))
+        scanned = ocr_scans and scan.is_scanned(page)
+        if scanned:
+            if scan.tesseract_available():
+                blocks = scan.page_blocks(page, pno, lang.tesseract, scan_dpi)
+            elif not warned:
+                warned = True
+                import logging
+                logging.getLogger("medtrans").warning(
+                    "Phát hiện trang scan nhưng chưa cài Tesseract OCR – các trang scan sẽ không được dịch.")
+        else:
+            raw = page.get_text("dict")
+            for i, rb in enumerate(raw["blocks"]):
+                if rb.get("type") != 0:
+                    continue
+                b = _build_block(rb, pno, i, w, h)
+                if b:
+                    blocks.append(b)
+        for b in blocks:
+            sizes_all.extend([b.font_size] * max(1, len(b.plain) // 20))
         images = []
+        page_area = w * h
         for k, info in enumerate(page.get_image_info(xrefs=True)):
             xref = info.get("xref", 0)
             if not xref or info.get("width", 0) < min_image_px or info.get("height", 0) < min_image_px:
                 continue
+            r = pymupdf.Rect(info["bbox"])
+            if scanned and r.width * r.height > page_area * 0.4:
+                continue  # chính là ảnh scan của trang – chữ đã được OCR theo đoạn
             images.append(ImageItem(id=f"p{pno}_img{k}", page=pno, xref=xref, bbox=tuple(info["bbox"]),
                                     width=info["width"], height=info["height"]))
         obstacles = [tuple(i["bbox"]) for i in page.get_image_info()]
@@ -295,7 +328,9 @@ def extract(pdf_path: str | Path, min_image_px: int = 120) -> list[PageInfo]:
             obstacles += [tuple(r) for r in page.cluster_drawings() if r.width * r.height > 400]
         except Exception:
             pass
-        pages.append(PageInfo(pno, w, h, _reading_order(blocks, w), images, obstacles))
+        if scanned:
+            obstacles = [o for o in obstacles if (o[2] - o[0]) * (o[3] - o[1]) < page_area * 0.4]
+        pages.append(PageInfo(pno, w, h, _reading_order(blocks, w), images, obstacles, scanned=scanned))
     doc.close()
 
     body_size = statistics.median(sizes_all) if sizes_all else 10.0
@@ -306,14 +341,16 @@ def extract(pdf_path: str | Path, min_image_px: int = 120) -> list[PageInfo]:
             if b.role == "math" or (b.keep and b.role == "label"):
                 continue
             top, bottom = b.bbox[1], b.bbox[3]
-            if REFERENCES_RE.match(b.plain):
+            if lang.references.match(b.plain):
                 b.role = "heading"
                 in_refs = True
                 continue
-            if CAPTION_RE.match(b.plain):
+            if lang.caption.match(b.plain):
                 b.role = "caption"
             elif (b.font_size > body_size * 1.15 or (b.bold and len(b.plain) < 150)) and len(b.plain) < 250:
                 b.role = "heading"
+                if b.scanned:
+                    b.bold = True  # trang scan không nhận được độ đậm → tiêu đề in đậm theo thông lệ
                 if in_refs and b.font_size >= body_size * 1.15:
                     in_refs = False  # sang chương/mục mới
             elif (bottom < p.height * 0.07 or top > p.height * 0.93) and len(b.plain) < 150:

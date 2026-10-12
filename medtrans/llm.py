@@ -190,8 +190,15 @@ class MockLLM:
         if task == "review":
             return {"segments": [{"id": s["id"], "score": 90, "final": s["translation"], "problems": []}
                                  for s in p.get("segments", [])]}
+        if task == "evaluate":
+            return {"segments": [{"id": s["id"], "errors": [], "corrected": ""} for s in p.get("segments", [])]}
         if task == "extract_terms":
             return {"terms": []}
+        if task == "validate_terms":
+            return {"terms": [{"en": t["en"], "vi": t["vi"], "verdict": "standard", "corrected_vi": "",
+                               "confidence": 0.95, "note": "mock"} for t in p.get("terms", [])]}
+        if task == "ocr_fix":
+            return {"paragraphs": p.get("paragraphs", [])}
         if task == "image_ocr":
             return {"lines": []}
         return {}

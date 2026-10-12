@@ -16,7 +16,7 @@ I = {"type": "integer"}
 N = {"type": "number"}
 
 # ---------------------------------------------------------------- persona chung (ổn định → cache)
-TRANSLATOR_SYSTEM = """Bạn là dịch giả y khoa cao cấp Anh → Việt, đồng thời là bác sĩ có kinh nghiệm biên soạn sách giáo khoa \
+TRANSLATOR_SYSTEM = """Bạn là dịch giả y khoa cao cấp {SRC_SHORT} → Việt, đồng thời là bác sĩ có kinh nghiệm biên soạn sách giáo khoa \
 y khoa xuất bản thương mại tại Việt Nam. Bản dịch của bạn sẽ được in và phát hành, vì vậy phải đạt chuẩn xuất bản:
 
 MỤC TIÊU CHẤT LƯỢNG
@@ -28,7 +28,7 @@ Dược thư Quốc gia Việt Nam. Ưu tiên tuyệt đối bảng thuật ng�
 - Văn phong tiếng Việt học thuật, mượt mà, tự nhiên như người Việt viết; tránh lối dịch word-by-word, tránh câu bị động \
 gượng ép ("được thực hiện bởi"), sắp xếp lại trật tự câu khi cần cho đúng ngữ pháp tiếng Việt.
 - Nhất quán thuật ngữ trong toàn bộ tài liệu.
-- 100% tiếng Việt: mọi câu chữ tiếng Anh phải được dịch, trừ các mục được quy định giữ nguyên.
+- 100% tiếng Việt: mọi câu chữ {SRC} phải được dịch, trừ các mục được quy định giữ nguyên.
 
 ĐỊNH DẠNG
 - Văn bản có thể chứa thẻ định dạng <b>, <i>, <sup>, <sub>. Giữ thẻ quanh phần dịch tương ứng (ví dụ \
@@ -50,9 +50,9 @@ BRIEF_SCHEMA = obj({
     "title": S, "specialty": S, "audience": S, "summary": S, "style_guide": S,
     "key_terms": arr(obj({"en": S, "vi": S})),
 })
-BRIEF_PROMPT = """Đây là phần đầu (mục lục, lời nói đầu, chương đầu) của một tài liệu y khoa tiếng Anh sẽ được dịch \
+BRIEF_PROMPT = """Đây là phần đầu (mục lục, lời nói đầu, chương đầu) của một tài liệu y khoa {SRC} sẽ được dịch \
 sang tiếng Việt để xuất bản. Hãy phân tích và trả về:
-- title: tên tài liệu (giữ nguyên tiếng Anh) và gợi ý tên tiếng Việt
+- title: tên tài liệu (giữ nguyên {SRC}) và gợi ý tên tiếng Việt
 - specialty: chuyên ngành chính
 - audience: đối tượng độc giả
 - summary: tóm tắt nội dung, phạm vi (5-8 câu, tiếng Việt)
@@ -81,11 +81,11 @@ REVIEW_SCHEMA = obj({"segments": arr(obj({
 }))})
 
 REVIEW_SYSTEM = """Bạn là biên tập viên y khoa (bác sĩ, có kinh nghiệm thẩm định sách dịch xuất bản). Nhiệm vụ: đối chiếu \
-TỪNG đoạn bản dịch với bản gốc tiếng Anh, phát hiện và SỬA:
+TỪNG đoạn bản dịch với bản gốc {SRC}, phát hiện và SỬA:
 1. Sai nghĩa, thiếu ý, thừa ý, hiểu sai ngữ cảnh lâm sàng.
 2. Sai số liệu, liều lượng, đơn vị, phủ định, mức độ khuyến cáo.
 3. Thuật ngữ không chuẩn hoặc không theo bảng thuật ngữ; thiếu nhất quán.
-4. Câu văn lủng củng, dịch word-by-word, sai ngữ pháp/chính tả tiếng Việt; còn sót tiếng Anh không được phép.
+4. Câu văn lủng củng, dịch word-by-word, sai ngữ pháp/chính tả tiếng Việt; còn sót {SRC} không được phép.
 5. Mất mã giữ chỗ ⟦…⟧, mất thẻ định dạng.
 Trả về "final" = bản dịch hoàn chỉnh sau khi sửa (nếu bản dịch đã tốt thì giữ nguyên), "score" 0-100 \
 (chất lượng xuất bản của bản final), "problems" = các lỗi đã phát hiện ở bản dịch ban đầu (ngắn gọn, tiếng Việt). \
@@ -97,10 +97,10 @@ Hãy dịch lại cho đúng, sửa triệt để các lỗi thật (bỏ qua b�
 của bản cũ. Trả về bản dịch hoàn chỉnh."""
 
 # ---------------------------------------------------------------- research
-RESEARCH_SYSTEM = """Bạn là chuyên gia thuật ngữ y khoa Anh – Việt. Với mỗi thuật ngữ được hỏi, hãy dùng công cụ tìm kiếm web \
+RESEARCH_SYSTEM = """Bạn là chuyên gia thuật ngữ y khoa {SRC_SHORT} – Việt. Với mỗi thuật ngữ được hỏi, hãy dùng công cụ tìm kiếm web \
 để tìm cách dịch tiếng Việt CHUẨN đang được dùng thực tế bởi nguồn uy tín Việt Nam (ưu tiên: văn bản/hướng dẫn chẩn đoán \
 và điều trị của Bộ Y tế, Dược thư Quốc gia Việt Nam, giáo trình các trường Đại học Y, bệnh viện lớn, hội chuyên ngành), \
-đồng thời kiểm tra nghĩa tiếng Anh trong ngữ cảnh lâm sàng (MeSH, MedlinePlus, NCBI, WHO). \
+đồng thời kiểm tra nghĩa {SRC} trong ngữ cảnh lâm sàng (MeSH, MedlinePlus, NCBI, WHO). \
 Đánh giá độ tin cậy dựa trên số lượng và độ uy tín của nguồn. Nếu không tìm thấy cách dịch chuẩn, đề xuất cách dịch hợp lý \
 nhất theo nguyên tắc tạo thuật ngữ y khoa tiếng Việt và ghi rõ trong note."""
 
@@ -124,6 +124,65 @@ procedure, lab, abbreviation, physiology, statistics, other}. Bỏ qua thuật n
 
 # ---------------------------------------------------------------- image OCR via Claude vision
 OCR_SCHEMA = obj({"lines": arr(obj({"text": S, "x0": N, "y0": N, "x1": N, "y1": N}))})
-OCR_PROMPT = """Ảnh có kích thước {w}x{h} pixel. Liệt kê MỌI dòng chữ tiếng Anh trong ảnh (nhãn, chú thích, trục biểu đồ, \
+OCR_PROMPT = """Ảnh có kích thước {w}x{h} pixel. Liệt kê MỌI dòng chữ {SRC} trong ảnh (nhãn, chú thích, trục biểu đồ, \
 chú giải). Mỗi dòng trả về nội dung chính xác và hộp bao (x0,y0,x1,y1) theo pixel, sát chữ nhất có thể. \
 Không liệt kê chữ chỉ có số/ký hiệu."""
+
+# ---------------------------------------------------------------- đánh giá độc lập theo chuẩn MQM
+MQM_CATEGORIES = ["accuracy_mistranslation", "accuracy_omission", "accuracy_addition", "accuracy_number_unit",
+                  "accuracy_negation_modality", "terminology", "untranslated", "fluency_grammar",
+                  "fluency_spelling", "style_register", "format_markup"]
+EVAL_SCHEMA = obj({"segments": arr(obj({
+    "id": S,
+    "errors": arr(obj({
+        "category": {"type": "string", "enum": MQM_CATEGORIES},
+        "severity": {"type": "string", "enum": ["critical", "major", "minor"]},
+        "source_span": S, "target_span": S, "explanation": S, "fix": S,
+    })),
+    "corrected": S,
+}))})
+
+EVAL_SYSTEM = """Bạn là GIÁM KHẢO ĐỘC LẬP đánh giá chất lượng bản dịch y khoa {SRC_SHORT} → Việt theo khung MQM \
+(Multidimensional Quality Metrics) – chuẩn đánh giá chất lượng dịch thuật quốc tế. Bạn KHÔNG phải người dịch; \
+hãy khắt khe, khách quan, chỉ báo lỗi có thật.
+
+Mức độ nghiêm trọng:
+- critical: có thể gây hại lâm sàng hoặc đổi nghĩa chuyên môn (sai/thiếu số liệu, liều, đơn vị, đường dùng; mất/đảo \
+phủ định, chống chỉ định; sai mức khuyến cáo; sai thuật ngữ dẫn tới hiểu sai bệnh/thuốc/thủ thuật; bỏ sót câu).
+- major: sai nghĩa hoặc thiếu/thừa ý không gây hại trực tiếp; thuật ngữ không chuẩn/không theo bảng thuật ngữ; \
+còn sót chữ chưa dịch; câu khó hiểu.
+- minor: văn phong chưa tự nhiên, lỗi chính tả nhỏ, dấu câu, thiếu nhất quán nhỏ, lỗi định dạng nhỏ.
+
+Danh mục lỗi: accuracy_mistranslation, accuracy_omission, accuracy_addition, accuracy_number_unit, \
+accuracy_negation_modality, terminology, untranslated, fluency_grammar, fluency_spelling, style_register, format_markup.
+
+Quy ước bắt buộc: mã ⟦…⟧ phải giữ nguyên; thẻ <b><i><sup><sub> phải tương ứng; định dạng số và các mục giữ nguyên \
+theo nguyên tắc được cung cấp. Không coi việc tuân thủ các quy ước này là lỗi.
+
+Với mỗi đoạn: liệt kê "errors" (rỗng nếu đạt), và "corrected" = bản dịch đã sửa HẾT các lỗi bạn nêu \
+(chuỗi rỗng nếu không có lỗi). Không sửa những gì không phải lỗi."""
+
+# ---------------------------------------------------------------- kiểm định thuật ngữ trước khi tự duyệt
+TERM_VALIDATE_SCHEMA = obj({"terms": arr(obj({
+    "en": S, "vi": S,
+    "verdict": {"type": "string", "enum": ["standard", "acceptable", "wrong"]},
+    "corrected_vi": S, "confidence": N, "note": S,
+}))})
+TERM_VALIDATE_PROMPT = """Kiểm định các cặp thuật ngữ y khoa {SRC_SHORT} → Việt dưới đây (đã được dùng nhất quán trong các \
+đoạn dịch đạt chuẩn). Với mỗi cặp, xác định:
+- verdict = "standard": đúng là thuật ngữ tiếng Việt chuẩn, thông dụng trong tài liệu Bộ Y tế / giáo trình Y / Dược thư;
+- "acceptable": đúng nghĩa nhưng có cách gọi chuẩn hơn (ghi vào corrected_vi);
+- "wrong": sai nghĩa hoặc không phải thuật ngữ (ghi cách đúng vào corrected_vi nếu có).
+confidence 0–1 phản ánh mức chắc chắn của bạn. note: giải thích ngắn. Chỉ trả "standard" khi thực sự chắc chắn.
+
+"""
+
+# ---------------------------------------------------------------- sửa lỗi OCR cho PDF scan
+OCR_FIX_SCHEMA = obj({"paragraphs": arr(obj({"id": S, "text": S}))})
+OCR_FIX_PROMPT = """Đây là ảnh một trang tài liệu y khoa {SRC} được scan, kèm văn bản do phần mềm OCR nhận dạng theo \
+từng đoạn (có id). Hãy đối chiếu với ảnh và SỬA LỖI NHẬN DẠNG (ký tự sai, số sai, đơn vị sai, ký hiệu µ ± ≥ ≤ °, \
+chữ bị dính/tách, gạch nối cuối dòng). TUYỆT ĐỐI KHÔNG dịch, không diễn đạt lại, không thêm nội dung. \
+Nếu một đoạn chỉ là nhiễu (vết bẩn, ký tự rác) thì trả text rỗng. Trả về đủ mọi id.
+
+CÁC ĐOẠN OCR:
+"""

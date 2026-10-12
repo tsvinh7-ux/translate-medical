@@ -27,9 +27,11 @@ CREATE TABLE IF NOT EXISTS glossary (
     source TEXT DEFAULT 'manual',      -- manual | import | web | learned
     source_url TEXT DEFAULT '',
     status TEXT DEFAULT 'approved',    -- approved | candidate | rejected
+    evidence INTEGER DEFAULT 0,        -- số đoạn đạt chuẩn đã dùng nhất quán cặp thuật ngữ này
+    src_lang TEXT DEFAULT 'en',        -- ngôn ngữ nguồn (cột en = thuật ngữ nguồn)
     created_at REAL,
     updated_at REAL,
-    UNIQUE(en_norm, domain)
+    UNIQUE(en_norm, domain, src_lang)
 );
 CREATE INDEX IF NOT EXISTS idx_gloss_status ON glossary(status);
 
@@ -42,10 +44,11 @@ CREATE TABLE IF NOT EXISTS tm (
     domain TEXT DEFAULT 'general_medicine',
     doc_name TEXT DEFAULT '',
     role TEXT DEFAULT 'body',
-    quality INTEGER DEFAULT 0,         -- điểm 0-100 do vòng biên tập chấm
-    approved INTEGER DEFAULT 0,        -- 1 = người duyệt đã xác nhận
+    quality INTEGER DEFAULT 0,         -- điểm MQM 0-100 do giám khảo độc lập chấm
+    approved INTEGER DEFAULT 0,        -- 1 = đạt chuẩn chứng nhận (tự động) hoặc người duyệt xác nhận
+    src_lang TEXT DEFAULT 'en',
     created_at REAL,
-    UNIQUE(src_hash, domain)
+    UNIQUE(src_hash, domain, src_lang)
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS tm_fts USING fts5(src_norm, content='tm', content_rowid='id');
 CREATE TRIGGER IF NOT EXISTS tm_ai AFTER INSERT ON tm BEGIN
@@ -121,8 +124,40 @@ class Database:
         self.conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
+        self._migrate()
         self.conn.executescript(SCHEMA)
+        self._finish_migration()
         self.conn.commit()
+
+    # ------------------------------------------------------------ migration
+    def _columns(self, table: str) -> set[str]:
+        return {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+
+    def _migrate(self) -> None:
+        """CSDL tạo từ phiên bản cũ (chưa có src_lang/evidence) → dựng lại bảng, giữ dữ liệu."""
+        self._legacy = False
+        cols = self._columns("glossary")
+        if cols and "src_lang" not in cols:
+            self._legacy = True
+            self.conn.executescript("""
+                DROP INDEX IF EXISTS idx_gloss_status;
+                DROP TRIGGER IF EXISTS tm_ai; DROP TRIGGER IF EXISTS tm_ad; DROP TRIGGER IF EXISTS tm_au;
+                DROP TABLE IF EXISTS tm_fts;
+                ALTER TABLE glossary RENAME TO glossary_old;
+                ALTER TABLE tm RENAME TO tm_old;
+            """)
+
+    def _finish_migration(self) -> None:
+        if not getattr(self, "_legacy", False):
+            return
+        g = ["en", "en_norm", "vi", "domain", "category", "note", "keep_original", "gloss_first", "case_sensitive",
+             "priority", "source", "source_url", "status", "created_at", "updated_at"]
+        t = ["src", "src_norm", "src_hash", "tgt", "domain", "doc_name", "role", "quality", "approved", "created_at"]
+        self.conn.executescript(f"""
+            INSERT OR IGNORE INTO glossary ({','.join(g)}) SELECT {','.join(g)} FROM glossary_old;
+            INSERT OR IGNORE INTO tm ({','.join(t)}) SELECT {','.join(t)} FROM tm_old;
+            DROP TABLE glossary_old; DROP TABLE tm_old;
+        """)
 
     # ------------------------------------------------------------ helpers
     def execute(self, sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
@@ -139,7 +174,8 @@ class Database:
     def upsert_term(self, en: str, vi: str, domain: str = "general_medicine", *, category: str = "",
                     note: str = "", keep_original: bool = False, gloss_first: bool = False,
                     case_sensitive: bool = False, priority: int = 50, source: str = "manual",
-                    source_url: str = "", status: str = "approved", overwrite: bool = True) -> None:
+                    source_url: str = "", status: str = "approved", overwrite: bool = True,
+                    src_lang: str = "en") -> None:
         en = unicodedata.normalize("NFC", en.strip())
         vi = unicodedata.normalize("NFC", vi.strip())
         if not en or (not vi and not keep_original):
@@ -148,8 +184,8 @@ class Database:
             vi = en
         now = time.time()
         en_norm = en if case_sensitive else normalize_text(en)
-        existing = self.query("SELECT id, status, source FROM glossary WHERE en_norm=? AND domain=?",
-                              (en_norm, domain))
+        existing = self.query("SELECT id, status, source FROM glossary WHERE en_norm=? AND domain=? AND src_lang=?",
+                              (en_norm, domain, src_lang))
         if existing:
             row = existing[0]
             # Không để thuật ngữ đề xuất (candidate) ghi đè thuật ngữ đã duyệt
@@ -163,14 +199,38 @@ class Database:
         else:
             self.execute(
                 """INSERT INTO glossary (en, en_norm, vi, domain, category, note, keep_original, gloss_first,
-                   case_sensitive, priority, source, source_url, status, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   case_sensitive, priority, source, source_url, status, src_lang, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (en, en_norm, vi, domain, category, note, int(keep_original), int(gloss_first),
-                 int(case_sensitive), priority, source, source_url, status, now, now))
+                 int(case_sensitive), priority, source, source_url, status, src_lang, now, now))
 
-    def terms(self, domains: Iterable[str] | None = None, status: str | None = "approved") -> list[dict]:
+    def add_evidence(self, en: str, vi: str, domain: str, n: int, *, src_lang: str = "en", source: str = "learned",
+                     category: str = "", note: str = "") -> dict | None:
+        """Cộng bằng chứng cho cặp thuật ngữ (tạo mới ở trạng thái đề xuất nếu chưa có). Trả về bản ghi."""
+        en_norm = normalize_text(en)
+        rows = self.query("SELECT * FROM glossary WHERE en_norm=? AND domain=? AND src_lang=?",
+                          (en_norm, domain, src_lang))
+        if not rows:
+            self.upsert_term(en, vi, domain, category=category, note=note, source=source, status="candidate",
+                             src_lang=src_lang)
+            rows = self.query("SELECT * FROM glossary WHERE en_norm=? AND domain=? AND src_lang=?",
+                              (en_norm, domain, src_lang))
+            if not rows:
+                return None
+        row = dict(rows[0])
+        if normalize_text(row["vi"]) == normalize_text(vi):
+            self.execute("UPDATE glossary SET evidence = evidence + ?, updated_at=? WHERE id=?",
+                         (n, time.time(), row["id"]))
+            row["evidence"] = (row.get("evidence") or 0) + n
+        return row
+
+    def terms(self, domains: Iterable[str] | None = None, status: str | None = "approved",
+              src_lang: str | None = "en") -> list[dict]:
         sql = "SELECT * FROM glossary WHERE 1=1"
         params: list[Any] = []
+        if src_lang:
+            sql += " AND src_lang=?"
+            params.append(src_lang)
         if status:
             sql += " AND status=?"
             params.append(status)
@@ -181,18 +241,23 @@ class Database:
         sql += " ORDER BY priority DESC, length(en) DESC"
         return [dict(r) for r in self.query(sql, params)]
 
-    def set_term_status(self, term_id: int, status: str) -> None:
-        self.execute("UPDATE glossary SET status=?, updated_at=? WHERE id=?", (status, time.time(), term_id))
+    def set_term_status(self, term_id: int, status: str, note: str | None = None) -> None:
+        if note is None:
+            self.execute("UPDATE glossary SET status=?, updated_at=? WHERE id=?", (status, time.time(), term_id))
+        else:
+            self.execute("UPDATE glossary SET status=?, note=?, updated_at=? WHERE id=?",
+                         (status, note, time.time(), term_id))
 
     def delete_term(self, term_id: int) -> None:
         self.execute("DELETE FROM glossary WHERE id=?", (term_id,))
 
     # ------------------------------------------------------------ TM
     def tm_add(self, src: str, tgt: str, domain: str, *, doc_name: str = "", role: str = "body",
-               quality: int = 0, approved: bool = False) -> None:
+               quality: int = 0, approved: bool = False, src_lang: str = "en") -> None:
         h = text_hash(src)
         now = time.time()
-        existing = self.query("SELECT id, quality, approved FROM tm WHERE src_hash=? AND domain=?", (h, domain))
+        existing = self.query("SELECT id, quality, approved FROM tm WHERE src_hash=? AND domain=? AND src_lang=?",
+                              (h, domain, src_lang))
         if existing:
             row = existing[0]
             # Không ghi đè bản đã được người duyệt bằng bản máy có điểm thấp hơn
@@ -204,27 +269,27 @@ class Database:
                          (tgt, quality, int(approved), doc_name, role, row["id"]))
         else:
             self.execute(
-                """INSERT INTO tm (src, src_norm, src_hash, tgt, domain, doc_name, role, quality, approved, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (src, normalize_text(src), h, tgt, domain, doc_name, role, quality, int(approved), now))
+                """INSERT INTO tm (src, src_norm, src_hash, tgt, domain, doc_name, role, quality, approved, src_lang,
+                   created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (src, normalize_text(src), h, tgt, domain, doc_name, role, quality, int(approved), src_lang, now))
 
-    def tm_exact(self, src: str, domains: Iterable[str]) -> dict | None:
+    def tm_exact(self, src: str, domains: Iterable[str], src_lang: str = "en") -> dict | None:
         d = list(domains)
         rows = self.query(
-            f"SELECT * FROM tm WHERE src_hash=? AND domain IN ({','.join('?' * len(d))}) "
-            "ORDER BY approved DESC, quality DESC LIMIT 1", [text_hash(src), *d])
+            f"SELECT * FROM tm WHERE src_hash=? AND src_lang=? AND domain IN ({','.join('?' * len(d))}) "
+            "ORDER BY approved DESC, quality DESC LIMIT 1", [text_hash(src), src_lang, *d])
         return dict(rows[0]) if rows else None
 
-    def tm_candidates(self, src: str, domains: Iterable[str], limit: int = 30) -> list[dict]:
-        words = [w for w in re.findall(r"[a-z][a-z0-9\-]{3,}", normalize_text(src))][:12]
+    def tm_candidates(self, src: str, domains: Iterable[str], limit: int = 30, src_lang: str = "en") -> list[dict]:
+        words = [w for w in re.findall(r"[^\W\d_][\w\-]{3,}", normalize_text(src))][:12]
         if not words:
             return []
         fts_query = " OR ".join(f'"{w}"' for w in dict.fromkeys(words))
         d = list(domains)
         rows = self.query(
             f"""SELECT tm.* FROM tm_fts JOIN tm ON tm.id = tm_fts.rowid
-                WHERE tm_fts MATCH ? AND tm.domain IN ({','.join('?' * len(d))})
-                ORDER BY bm25(tm_fts) LIMIT ?""", [fts_query, *d, limit])
+                WHERE tm_fts MATCH ? AND tm.src_lang=? AND tm.domain IN ({','.join('?' * len(d))})
+                ORDER BY bm25(tm_fts) LIMIT ?""", [fts_query, src_lang, *d, limit])
         return [dict(r) for r in rows]
 
     def tm_stats(self) -> dict:

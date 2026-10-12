@@ -13,9 +13,9 @@ TAGS = re.compile(r"</?(?:b|i|sup|sub)>")
 
 
 def export_tmx(db: Database, path: str | Path, domain: str | None = None, min_quality: int = 0,
-               approved_only: bool = False) -> int:
-    sql = "SELECT * FROM tm WHERE quality >= ?"
-    params: list = [min_quality]
+               approved_only: bool = False, src_lang: str = "en") -> int:
+    sql = "SELECT * FROM tm WHERE quality >= ? AND src_lang = ?"
+    params: list = [min_quality, src_lang]
     if domain:
         sql += " AND domain = ?"
         params.append(domain)
@@ -24,12 +24,12 @@ def export_tmx(db: Database, path: str | Path, domain: str | None = None, min_qu
     rows = db.query(sql, params)
     out = ['<?xml version="1.0" encoding="UTF-8"?>', '<tmx version="1.4">',
            f'<header creationtool="MedTrans" creationtoolversion="0.1" datatype="plaintext" segtype="paragraph" '
-           f'adminlang="en" srclang="en" o-tmf="medtrans" creationdate="{time.strftime("%Y%m%dT%H%M%SZ")}"/>',
+           f'adminlang="vi" srclang="{src_lang}" o-tmf="medtrans" creationdate="{time.strftime("%Y%m%dT%H%M%SZ")}"/>',
            "<body>"]
     for r in rows:
         out.append(f'<tu><prop type="domain">{escape(r["domain"])}</prop><prop type="quality">{r["quality"]}</prop>'
                    f'<prop type="approved">{r["approved"]}</prop>'
-                   f'<tuv xml:lang="en"><seg>{escape(r["src"])}</seg></tuv>'
+                   f'<tuv xml:lang="{src_lang}"><seg>{escape(r["src"])}</seg></tuv>'
                    f'<tuv xml:lang="vi"><seg>{escape(r["tgt"])}</seg></tuv></tu>')
     out += ["</body>", "</tmx>"]
     Path(path).write_text("\n".join(out), encoding="utf-8")
@@ -37,7 +37,7 @@ def export_tmx(db: Database, path: str | Path, domain: str | None = None, min_qu
 
 
 def import_tmx(db: Database, path: str | Path, domain: str = "general_medicine", quality: int = 95,
-               approved: bool = True) -> int:
+               approved: bool = True, src_lang: str = "en") -> int:
     """Nhập TMX từ bản dịch người đã duyệt (ví dụ sách đã xuất bản) → nguồn tham khảo/dùng lại."""
     tree = ET.parse(path)
     n = 0
@@ -49,21 +49,23 @@ def import_tmx(db: Database, path: str | Path, domain: str = "general_medicine",
             seg = tuv.find("seg")
             if seg is not None:
                 segs[lang] = "".join(seg.itertext()).strip()
-        if segs.get("en") and segs.get("vi"):
-            db.tm_add(segs["en"], segs["vi"], domain, doc_name=Path(path).name, quality=quality, approved=approved)
+        if segs.get(src_lang) and segs.get("vi"):
+            db.tm_add(segs[src_lang], segs["vi"], domain, doc_name=Path(path).name, quality=quality,
+                      approved=approved, src_lang=src_lang)
             n += 1
     return n
 
 
-def import_bilingual_table(db: Database, path: str | Path, domain: str = "general_medicine", quality: int = 95) -> int:
+def import_bilingual_table(db: Database, path: str | Path, domain: str = "general_medicine", quality: int = 95,
+                           src_lang: str = "en") -> int:
     """Nhập bảng song ngữ (CSV/XLSX với cột en, vi) – ví dụ câu đã dịch thủ công trước đây."""
     from .glossary import read_rows
     n = 0
     for row in read_rows(path):
         r = {k.strip().lower(): (v or "").strip() for k, v in row.items() if k}
-        en = r.get("en") or r.get("english") or r.get("source")
+        en = r.get(src_lang) or r.get("en") or r.get("english") or r.get("source") or r.get("src")
         vi = r.get("vi") or r.get("vietnamese") or r.get("target")
         if en and vi:
-            db.tm_add(en, vi, domain, doc_name=Path(path).name, quality=quality, approved=True)
+            db.tm_add(en, vi, domain, doc_name=Path(path).name, quality=quality, approved=True, src_lang=src_lang)
             n += 1
     return n

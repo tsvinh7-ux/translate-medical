@@ -1,7 +1,7 @@
 """Tự đối chiếu bản dịch với bản gốc bằng quy tắc (không tốn token).
 
 Kiểm tra: số liệu, cặp số–đơn vị (liều lượng), mã giữ chỗ, token phải giữ nguyên, thuật ngữ bắt buộc,
-phủ định, sót tiếng Anh, độ dài bất thường, thẻ định dạng.
+phủ định, sót chữ chưa dịch, độ dài bất thường, thẻ định dạng.
 """
 from __future__ import annotations
 
@@ -10,22 +10,12 @@ from collections import Counter
 from dataclasses import dataclass
 
 from .glossary import vi_contains
+from .languages import EN, VI_AMBIGUOUS, LangProfile
 from .rules import PLACEHOLDER_RE, Rules, must_keep_tokens
 
 TAG_RE = re.compile(r"</?(?:b|i|sup|sub)>")
-EN_NEG = re.compile(r"\b(not|no(?!\.\s*\d)|never|without|contraindicat\w*|avoid\w*|neither|nor|cannot|"
-                    r"\w+n't|unless)\b", re.I)
 VI_NEG = re.compile(r"(không|chưa|chẳng|chống chỉ định|tránh|cấm|ngoại trừ|trừ khi|thiếu|vắng|chớ|"
                     r"đừng|ngưng|ngừng|âm tính|loại trừ|thất bại|phi |bất )", re.I)
-EN_STOP = {"the", "of", "and", "with", "is", "are", "was", "were", "for", "from", "which", "that", "this",
-           "these", "those", "should", "would", "been", "have", "has", "into", "their", "there", "when",
-           "while", "patients", "patient", "also", "other", "such", "between", "after", "before", "however",
-           "because", "without", "within", "during", "about", "more", "most", "each", "only", "used",
-           "using", "treatment", "disease", "therapy", "increased", "decreased", "or", "by", "be", "it",
-           "at", "as", "not", "will", "can", "may", "than", "but", "if"}
-# từ tiếng Việt viết không dấu trùng tiếng Anh → bỏ qua
-VI_AMBIGUOUS = {"can", "may", "than", "an", "do", "to", "in", "the", "be", "it", "at", "as", "but", "or", "by", "if",
-                "not"}
 
 
 @dataclass
@@ -78,6 +68,10 @@ def numbers_vi(text: str, number_format: str) -> list[str]:
     return out
 
 
+def numbers_src(text: str, lang: LangProfile) -> list[str]:
+    return numbers_en(text) if lang.number_style == "dot_decimal" else numbers_vi(text, "vi")
+
+
 def _clean_for_numbers(text: str) -> str:
     text = PLACEHOLDER_RE.sub(" ", strip_tags(text))
     text = re.sub(r"\[\d[\d\s,–\-]*\]", " ", text)  # trích dẫn [1,4] kiểm tra riêng
@@ -100,7 +94,7 @@ def _unit_pairs(text: str, units: list[str], parse) -> Counter:
 
 def check(src: str, tgt: str, *, rules: Rules, number_format: str = "vi", placeholders: dict | None = None,
           glossary_terms: list[dict] | None = None, italic_spans: list[str] | None = None,
-          role: str = "body") -> list[Issue]:
+          role: str = "body", lang: LangProfile = EN) -> list[Issue]:
     issues: list[Issue] = []
     if not tgt or not tgt.strip():
         return [Issue("error", "empty", "Bản dịch rỗng")]
@@ -115,7 +109,7 @@ def check(src: str, tgt: str, *, rules: Rules, number_format: str = "vi", placeh
         issues.append(Issue("error", "placeholder", f"Mã lạ trong bản dịch: {stray}"))
 
     # 2. số liệu
-    src_nums = Counter(numbers_en(_clean_for_numbers(src)))
+    src_nums = Counter(numbers_src(_clean_for_numbers(src), lang))
     tgt_nums = Counter(numbers_vi(_clean_for_numbers(tgt), number_format))
     missing = src_nums - tgt_nums
     extra = tgt_nums - src_nums
@@ -127,7 +121,7 @@ def check(src: str, tgt: str, *, rules: Rules, number_format: str = "vi", placeh
                             f"Số liệu xuất hiện thêm trong bản dịch: {sorted(extra.elements())}"))
 
     # 3. cặp số – đơn vị (liều lượng)
-    sp = _unit_pairs(src, rules.units, lambda s: numbers_en(s))
+    sp = _unit_pairs(src, rules.units, lambda s: numbers_src(s, lang))
     tp = _unit_pairs(tgt, rules.units, lambda s: numbers_vi(s, number_format))
     lost = sp - tp
     if lost:
@@ -152,15 +146,16 @@ def check(src: str, tgt: str, *, rules: Rules, number_format: str = "vi", placeh
 
     # 6. phủ định
     plain_src = strip_tags(src)
-    if EN_NEG.search(plain_src) and not VI_NEG.search(plain_tgt):
+    if lang.negation.search(plain_src) and not VI_NEG.search(plain_tgt):
         issues.append(Issue("error", "negation", "Bản gốc có ý phủ định/chống chỉ định nhưng bản dịch không thể hiện"))
 
     # 7. sót tiếng Anh
-    toks = re.findall(r"[A-Za-z]+", PLACEHOLDER_RE.sub(" ", plain_tgt))
+    toks = re.findall(r"[^\W\d_]+", PLACEHOLDER_RE.sub(" ", plain_tgt))
     keep_lower = {k.lower() for k in keep}
-    eng = [w for w in toks if w.lower() in EN_STOP and w.lower() not in VI_AMBIGUOUS and w.lower() not in keep_lower]
+    eng = [w for w in toks if w.lower() in lang.stopwords and w.lower() not in VI_AMBIGUOUS
+           and w.lower() not in keep_lower]
     if len(eng) >= 2 and len(eng) / max(1, len(toks)) > 0.03:
-        issues.append(Issue("error", "untranslated", f"Có thể còn sót tiếng Anh: {eng[:8]}"))
+        issues.append(Issue("error", "untranslated", f"Có thể còn sót {lang.name_vi} chưa dịch: {eng[:8]}"))
 
     # 8. độ dài bất thường
     ls, lt = len(plain_src), len(plain_tgt)

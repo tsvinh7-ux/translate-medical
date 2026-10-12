@@ -43,7 +43,11 @@ tab_tr, tab_rv, tab_gl, tab_tm, tab_cfg = st.tabs(
 # =============================================================== DỊCH
 with tab_tr:
     up = st.file_uploader("Chọn file PDF tiếng Anh", type=["pdf"])
-    c1, c2, c3 = st.columns(3)
+    from medtrans.languages import PROFILES
+    c0, c1, c2, c3 = st.columns(4)
+    src_lang = c0.selectbox("Ngôn ngữ nguồn → tiếng Việt", list(PROFILES),
+                            format_func=lambda c: f"{PROFILES[c].name_vi} ({c})",
+                            help="Hiện hoàn thiện Anh → Việt. Ngôn ngữ khác sẽ được bổ sung dạng module.")
     domain = c1.text_input("Chuyên ngành (domain)", cfg.get_path("translation.domain", "general_medicine"),
                            help="Ví dụ: cardiology, oncology, pharmacology, pediatrics... Thuật ngữ & bộ nhớ dịch "
                                 "được lưu theo chuyên ngành để dùng lại.")
@@ -58,7 +62,10 @@ with tab_tr:
             st.json(estimate(pdf_path, cfg.get_path("llm.model")))
         if b2.button("🚀 Bắt đầu dịch", type="primary"):
             from medtrans.translator import Translator
-            run_cfg = load_config(overrides={"llm": {"provider": "mock"}} if mock else None)
+            over = {"translation": {"source_lang": src_lang}}
+            if mock:
+                over["llm"] = {"provider": "mock"}
+            run_cfg = load_config(overrides=over)
             bar = st.progress(0.0, "Bắt đầu...")
             pr = None
             if pages.strip():
@@ -73,12 +80,17 @@ with tab_tr:
                 st.exception(e)
     res = st.session_state.get("last_result")
     if res:
-        k = st.columns(5)
+        k = st.columns(6)
         k[0].metric("Số đoạn", res["segments"])
-        k[1].metric("Điểm TB", res["avg_score"])
-        k[2].metric("Cần duyệt", res["needs_review"])
-        k[3].metric("Dùng lại TM", res["from_tm"])
-        k[4].metric("Chi phí (USD)", res["usage"]["estimated_cost_usd"])
+        k[1].metric("Điểm MQM TB", res["avg_score"])
+        k[2].metric("Đạt chuẩn", res.get("certified", 0))
+        k[3].metric("Còn lỗi nặng", res["needs_review"])
+        k[4].metric("Dùng lại TM", res["from_tm"])
+        k[5].metric("Chi phí (USD)", res["usage"]["estimated_cost_usd"])
+        te = res.get("term_enrichment") or {}
+        if te:
+            st.caption(f"Tự làm giàu thuật ngữ: {te.get('proposed', 0)} đề xuất, {te.get('auto_approved', 0)} tự duyệt, "
+                       f"{te.get('rejected', 0)} bị loại/sửa. Trang scan: {res.get('scanned_pages', 0)}.")
         d1, d2 = st.columns(2)
         d1.download_button("⬇️ Tải PDF tiếng Việt", Path(res["output_pdf"]).read_bytes(),
                            file_name=Path(res["output_pdf"]).name, mime="application/pdf")
@@ -96,10 +108,11 @@ with tab_rv:
     else:
         labels = {f"{Path(j['pdf_path']).name} [{j['domain']}] – {j['status']}": j for j in jobs}
         job = labels[st.selectbox("Tài liệu", list(labels))]
-        only_bad = st.checkbox("Chỉ hiện đoạn cần duyệt / điểm thấp", value=True)
+        st.caption("Không bắt buộc: hệ thống đã tự chấm MQM và tự chứng nhận. Tab này để xem/sửa thêm nếu bạn muốn.")
+        only_bad = st.checkbox("Chỉ hiện đoạn chưa đạt chuẩn", value=True)
         segs = sorted(db.segments(job["job_id"]).values(), key=lambda s: (s["page"], s["seg_id"]))
         if only_bad:
-            segs = [s for s in segs if s["status"] in ("needs_review", "failed") or (s["score"] or 0) < 85]
+            segs = [s for s in segs if s["status"] not in ("certified", "tm")]
         st.caption(f"{len(segs)} đoạn. Giữ nguyên các mã ⟦n⟧ (ký hiệu/URL/công thức) và ⟦¶⟧ (ngắt cột/trang). "
                    "Lưu xong bấm 'Dựng lại PDF' — không tốn token.")
         for s in segs[:200]:
@@ -147,10 +160,13 @@ with tab_gl:
             db.upsert_term(en, vi, dom, note=note, keep_original=keep)
             st.success("Đã thêm.")
 
-    st.subheader("Thuật ngữ đề xuất chờ duyệt (AI tra cứu web / tự học)")
+    st.subheader("Thuật ngữ đề xuất (đang tích luỹ bằng chứng)")
+    st.caption("Hệ thống TỰ DUYỆT khi thuật ngữ được dùng nhất quán trong ≥ "
+               f"{cfg.get_path('quality.term_min_evidence', 2)} đoạn đạt chuẩn MQM và qua kiểm định độc lập; "
+               "thuật ngữ tra web được tự duyệt khi có nguồn uy tín. Bạn vẫn có thể duyệt/loại tay.")
     cand = db.terms(status="candidate")
     if cand:
-        df = pd.DataFrame(cand)[["id", "en", "vi", "domain", "source", "note", "source_url"]]
+        df = pd.DataFrame(cand)[["id", "en", "vi", "domain", "evidence", "source", "note", "source_url"]]
         df.insert(0, "duyệt", False)
         df.insert(1, "loại", False)
         ed = st.data_editor(df, hide_index=True, width="stretch", key="cand_ed",
@@ -170,7 +186,8 @@ with tab_gl:
     appr = db.terms(status="approved")
     q = st.text_input("Tìm", "")
     rows = [t for t in appr if q.lower() in (t["en"] + " " + t["vi"]).lower()] if q else appr
-    st.dataframe(pd.DataFrame(rows)[["en", "vi", "domain", "category", "note", "source"]] if rows else pd.DataFrame(),
+    st.dataframe(pd.DataFrame(rows)[["en", "vi", "domain", "category", "evidence", "source", "note"]]
+                 if rows else pd.DataFrame(),
                  width="stretch", hide_index=True)
     buf = Path(tempfile.mkdtemp()) / "glossary_export.csv"
     export_csv(db, buf)
@@ -193,8 +210,8 @@ with tab_tm:
             tm_mod.import_bilingual_table(db, tmp, tdom)
         st.success(f"Đã nhập {n} cặp câu.")
     out = Path(tempfile.mkdtemp()) / "medtrans_memory.tmx"
-    n = tm_mod.export_tmx(db, out, min_quality=85)
-    st.download_button(f"⬇️ Xuất TMX ({n} cặp câu chất lượng ≥ 85)", out.read_bytes(), file_name="medtrans_memory.tmx")
+    n = tm_mod.export_tmx(db, out, min_quality=95)
+    st.download_button(f"⬇️ Xuất TMX ({n} cặp câu đạt chuẩn ≥ 95)", out.read_bytes(), file_name="medtrans_memory.tmx")
 
 # =============================================================== CẤU HÌNH
 with tab_cfg:

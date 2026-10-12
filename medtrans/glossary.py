@@ -13,7 +13,8 @@ from .db import Database, normalize_text
 
 # Tên cột chấp nhận được (Anh hoặc Việt không dấu) → tên chuẩn
 COLUMN_ALIASES = {
-    "en": "en", "english": "en", "term": "en", "source": "en", "tieng_anh": "en", "tiếng anh": "en",
+    "en": "en", "english": "en", "term": "en", "src": "en", "source_term": "en", "tieng_anh": "en",
+    "tiếng anh": "en", "thuat_ngu_goc": "en", "thuật ngữ gốc": "en",
     "vi": "vi", "vietnamese": "vi", "target": "vi", "translation": "vi", "tieng_viet": "vi", "tiếng việt": "vi",
     "domain": "domain", "chuyen_nganh": "domain", "chuyên ngành": "domain",
     "category": "category", "loai": "category", "loại": "category",
@@ -99,21 +100,21 @@ def _read_tbx(path: Path) -> list[dict]:
 
 
 def import_file(db: Database, path: str | Path, default_domain: str = "general_medicine",
-                source: str = "import", overwrite: bool = True) -> int:
+                source: str = "import", overwrite: bool = True, src_lang: str = "en") -> int:
     n = 0
     for row in read_rows(path):
         t = _row_to_term(row, default_domain)
         if not t:
             continue
-        db.upsert_term(source=source, overwrite=overwrite, **t)
+        db.upsert_term(source=source, overwrite=overwrite, src_lang=src_lang, **t)
         n += 1
     return n
 
 
-def export_csv(db: Database, path: str | Path, status: str | None = "approved") -> int:
-    rows = db.terms(status=status)
-    cols = ["en", "vi", "domain", "category", "note", "keep_original", "gloss_first", "case_sensitive",
-            "priority", "source", "source_url", "status"]
+def export_csv(db: Database, path: str | Path, status: str | None = "approved", src_lang: str | None = None) -> int:
+    rows = db.terms(status=status, src_lang=src_lang)
+    cols = ["src_lang", "en", "vi", "domain", "category", "note", "keep_original", "gloss_first", "case_sensitive",
+            "priority", "source", "source_url", "status", "evidence"]
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
@@ -132,7 +133,7 @@ def _singular(word: str) -> str:
     return word
 
 
-_TOKEN_RE = re.compile(r"[A-Za-z0-9α-ωΑ-Ω]+(?:[-'’][A-Za-z0-9α-ωΑ-Ω]+)*")
+_TOKEN_RE = re.compile(r"[^\W_]+(?:[-'’][^\W_]+)*")
 
 
 def _tokens(text: str) -> list[tuple[str, int, int]]:

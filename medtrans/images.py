@@ -41,14 +41,14 @@ def _iou(a, b) -> float:
     return inter / union if union else 0.0
 
 
-def ocr_tesseract(img: Image.Image, prefix: str) -> list[OcrLine]:
+def ocr_tesseract(img: Image.Image, prefix: str, lang: str = "eng") -> list[OcrLine]:
     """OCR 2 lượt (chữ rời rạc + bố cục khối) rồi gộp, nhóm từ thành dòng theo hình học."""
     import pytesseract
     scale = 2 if max(img.size) < 1500 else 1
     work = img.resize((img.width * scale, img.height * scale), Image.LANCZOS) if scale > 1 else img
     words: list[tuple[str, tuple[int, int, int, int]]] = []
     for psm in (11, 3):
-        data = pytesseract.image_to_data(work, lang="eng", output_type=pytesseract.Output.DICT,
+        data = pytesseract.image_to_data(work, lang=lang, output_type=pytesseract.Output.DICT,
                                          config=f"--psm {psm}")
         for i, w in enumerate(data["text"]):
             if not w.strip() or float(data["conf"][i]) < 55:
