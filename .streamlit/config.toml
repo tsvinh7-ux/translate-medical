@@ -1,0 +1,14 @@
+# Tự sinh từ mục branding trong config.yaml – sửa ở config.yaml rồi chạy lại `python -m medtrans ui`
+[theme]
+base = "light"
+primaryColor = "#0B5394"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F7FB"
+textColor = "#1D1D1F"
+
+[server]
+address = "localhost"
+maxUploadSize = 2000
+
+[browser]
+gatherUsageStats = false

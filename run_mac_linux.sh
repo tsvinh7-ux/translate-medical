@@ -9,4 +9,4 @@ if [ ! -d .venv ]; then
 else
   source .venv/bin/activate
 fi
-python -m streamlit run app.py --server.address localhost
+python -m medtrans ui

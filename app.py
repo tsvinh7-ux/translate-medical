@@ -14,9 +14,15 @@ from medtrans.config import ROOT, load_config
 from medtrans.db import Database
 from medtrans.glossary import export_csv, import_file
 
-st.set_page_config(page_title="MedTrans – Dịch y khoa Anh → Việt", page_icon="🩺", layout="wide")
+from medtrans.branding import brand, css, logo_path
 
 cfg = load_config()
+B = brand(cfg)
+st.set_page_config(page_title=B["app_title"], page_icon="🩺", layout="wide")
+st.markdown(css(cfg), unsafe_allow_html=True)
+_logo = logo_path(cfg)
+if _logo:
+    st.logo(str(_logo))
 DB_PATH = cfg.resolve(cfg.get_path("memory.db_path", "workspace/medtrans.db"))
 UPLOAD_DIR = cfg.resolve("workspace/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,7 +38,23 @@ def get_db() -> Database:
 
 db = get_db()
 
-st.title("🩺 MedTrans — Dịch tài liệu y khoa Anh → Việt")
+st.markdown(f'<div class="brand-bar"><span class="brand-name">{B["name"]}</span>'
+            f'<span class="brand-sub">{B["app_title"]}</span></div>', unsafe_allow_html=True)
+
+STAGES = [(0.02, "Phân tích bố cục & OCR trang scan"), (0.025, "Đọc tổng quan tài liệu"),
+          (0.05, "Chuẩn bị thuật ngữ toàn văn"),
+          (0.8, "Dịch → Hiệu đính chuyên môn → Biên tập ngôn ngữ → Hội đồng giám khảo MQM"),
+          (0.84, "Dịch chữ trong hình"), (0.88, "Biên tập toàn văn"), (0.9, "Dàn trang"),
+          (0.95, "Đọc morat & sửa morat"), (1.0, "Làm giàu thuật ngữ & bộ nhớ dịch, báo cáo")]
+
+
+def stage_html(frac: float) -> str:
+    out, prev = [], 0.0
+    for end, name in STAGES:
+        cls = "done" if frac >= end else ("now" if frac >= prev else "todo")
+        out.append(f'<div class="stage {cls}">{"✓" if cls == "done" else ("▶" if cls == "now" else "○")} {name}</div>')
+        prev = end
+    return "".join(out)
 key_ok = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 if not key_ok and cfg.get_path("llm.provider") != "mock":
     st.warning("Chưa có ANTHROPIC_API_KEY. Tạo file `.env` (xem `.env.example`) rồi khởi động lại.")
@@ -42,7 +64,7 @@ tab_tr, tab_rv, tab_gl, tab_tm, tab_cfg = st.tabs(
 
 # =============================================================== DỊCH
 with tab_tr:
-    up = st.file_uploader("Chọn file PDF tiếng Anh", type=["pdf"])
+    up = st.file_uploader("Chọn file PDF cần dịch", type=["pdf"])
     from medtrans.languages import PROFILES
     c0, c1, c2, c3 = st.columns(4)
     src_lang = c0.selectbox("Ngôn ngữ nguồn → tiếng Việt", list(PROFILES),
@@ -57,9 +79,9 @@ with tab_tr:
         pdf_path = UPLOAD_DIR / up.name
         pdf_path.write_bytes(up.getbuffer())
         b1, b2 = st.columns(2)
-        if b1.button("💰 Ước tính chi phí"):
+        if b1.button("💰 Ước tính chi phí & thời gian"):
             from medtrans.translator import estimate
-            st.json(estimate(pdf_path, cfg.get_path("llm.model")))
+            st.json(estimate(pdf_path, cfg.get_path("llm.model"), cfg=cfg, db=db))
         if b2.button("🚀 Bắt đầu dịch", type="primary"):
             from medtrans.translator import Translator
             over = {"translation": {"source_lang": src_lang}}
@@ -67,11 +89,17 @@ with tab_tr:
                 over["llm"] = {"provider": "mock"}
             run_cfg = load_config(overrides=over)
             bar = st.progress(0.0, "Bắt đầu...")
+            stage_box = st.empty()
+
+            def on_progress(f, m):
+                bar.progress(min(1.0, f), m)
+                stage_box.markdown(stage_html(f), unsafe_allow_html=True)
+
             pr = None
             if pages.strip():
                 a, _, b = pages.partition("-")
                 pr = (int(a), int(b or a))
-            tr = Translator(run_cfg, db=db, progress=lambda f, m: bar.progress(min(1.0, f), m))
+            tr = Translator(run_cfg, db=db, progress=on_progress)
             try:
                 res = tr.run(pdf_path, domain=domain.strip() or None, page_range=pr)
                 st.session_state["last_result"] = res

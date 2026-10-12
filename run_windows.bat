@@ -9,4 +9,4 @@ if not exist .venv (
 ) else (
   call .venv\Scripts\activate
 )
-python -m streamlit run app.py --server.address localhost
+python -m medtrans ui

@@ -1,6 +1,13 @@
-"""Điều phối toàn bộ quy trình dịch một tài liệu PDF.
+"""Điều phối toàn bộ quy trình dịch – xuất bản một tài liệu PDF.
 
-Quy trình cho mỗi lô đoạn văn:
+Quy trình xuất bản (mỗi công đoạn có điểm lưu, chạy lại sẽ tiếp tục):
+  0. Phân tích bố cục (+ OCR trang scan) → đọc tổng quan → CHUẨN BỊ THUẬT NGỮ TOÀN VĂN
+  1–3. Theo từng lô: DỊCH → HIỆU ĐÍNH CHUYÊN MÔN → BIÊN TẬP NGÔN NGỮ → kiểm tra máy → HỘI ĐỒNG GIÁM KHẢO MQM
+  4. BIÊN TẬP TOÀN VĂN (nhất quán giữa các đoạn/chương)
+  5. DÀN TRANG → 6. ĐỌC MORAT (máy + Claude so ảnh trang) → sửa morat, dàn lại
+  7. Tự làm giàu thuật ngữ & bộ nhớ dịch, báo cáo
+
+Chi tiết vòng lô:
   1. Tra bộ nhớ dịch (TM): khớp 100% & chất lượng cao → dùng lại, không tốn token.
   2. Dịch (kèm tóm lược tài liệu, thuật ngữ bắt buộc, câu tương tự từ TM, thuật ngữ đã quyết định).
   3. Thuật ngữ AI không chắc → tra cứu Internet, đối chiếu nguồn uy tín → chốt thuật ngữ cho cả tài liệu.
@@ -39,10 +46,13 @@ from .pdf_extract import PageInfo, TextBlock, extract
 from .pdf_render import find_fonts, render
 from .report import write_report
 from .rules import PLACEHOLDER_RE, load_rules, protect, restore
+from .stages import PublishingStages
 from .verify import Issue, check, has_errors
 
 log = logging.getLogger("medtrans")
 PARA = "⟦¶⟧"
+# cảnh báo máy chặn chứng nhận khi quality.strict_certify bật
+STRICT_WARNINGS = {"glossary", "keep_missing", "number_extra", "tags", "paragraph_marker", "length"}
 
 
 @dataclass
@@ -71,7 +81,7 @@ class Unit:
 ProgressCB = Callable[[float, str], None]
 
 
-class Translator:
+class Translator(PublishingStages):
     def __init__(self, cfg: Config, db: Database | None = None, llm=None, progress: ProgressCB | None = None):
         self.cfg = cfg
         self.db = db or Database(cfg.resolve(cfg.get_path("memory.db_path", "workspace/medtrans.db")))
@@ -123,12 +133,20 @@ class Translator:
         self.matcher = TermMatcher(glossary)
 
         brief = self._brief(pages)
+        self.termprep_stats = {}
+        try:
+            self.termprep_stats = self._prepare_terminology(pages)
+        except Exception as e:
+            log.warning("Chuẩn bị thuật ngữ toàn văn lỗi (tiếp tục dịch): %s", e)
         rules_text = self.rules.prompt_text(self.number_format, tcfg.get("drug_name_style", "duoc_thu"),
                                             tcfg.get("abbreviation_policy", "first_gloss"))
         self.system_translate = cached_system(self._p(P.TRANSLATOR_SYSTEM) + "\n\n" + rules_text,
                                               self._brief_text(brief))
         self.system_review = cached_system(self._p(P.REVIEW_SYSTEM) + "\n\n" + rules_text, self._brief_text(brief))
-        self.system_eval = cached_system(self._p(P.EVAL_SYSTEM) + "\n\n" + rules_text, self._brief_text(brief))
+        self.system_revise = cached_system(self._p(P.REVISE_SYSTEM) + "\n\n" + rules_text, self._brief_text(brief))
+        self.system_eval = {focus: cached_system(self._p(P.EVAL_SYSTEM) + P.JUDGE_FOCUS.get(focus, "") + "\n\n" +
+                                                 rules_text, self._brief_text(brief))
+                            for focus in self._judges()}
 
         units = self._build_units(pages)
         done = self.db.segments(job_id)
@@ -160,6 +178,8 @@ class Translator:
         total = max(1, len(batches))
         finished = 0
         workers = max(1, int(tcfg.get("workers", 3)))
+        t_batch0 = time.time()
+        chars_todo = sum(len(u.src) for u in to_translate)
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futs = {ex.submit(self._process_batch, b, units): b for b in batches}
             for fut in as_completed(futs):
@@ -172,22 +192,60 @@ class Translator:
                         u.status, u.issues = "failed", [{"severity": "error", "code": "api", "message": str(e)}]
                         self._save(u)
                 finished += 1
-                self.progress(0.08 + 0.72 * finished / total, f"Đã xử lý lô {finished}/{total}")
+                el = time.time() - t_batch0
+                eta = el / finished * (total - finished)
+                self.progress(0.08 + 0.72 * finished / total,
+                              f"Dịch → hiệu đính → biên tập → giám khảo: lô {finished}/{total} "
+                              f"(còn khoảng {_fmt_dur(eta)} cho công đoạn này)")
+        if batches and chars_todo > 2000:
+            self.db.perf_add(self.job_id, chars_todo, time.time() - t_batch0, workers,
+                             self.cfg.get_path("llm.effort", "high"))
 
         # --- hình ảnh
         image_repl = {}
         if lcfg.get("translate_images", True) and lcfg.get("image_ocr", "tesseract") != "off":
             image_repl = self._translate_images(pdf_path, pages, units)
 
-        # --- dựng PDF
-        self.progress(0.9, "Đang dựng PDF tiếng Việt giữ nguyên bố cục...")
-        block_tr = self._compose_blocks(units)
+        # --- biên tập toàn văn
+        self.consistency_stats = {}
+        if batches:
+            try:
+                self.consistency_stats = self._consistency_pass(units)
+            except Exception as e:
+                log.warning("Biên tập toàn văn lỗi (bỏ qua): %s", e)
+
+        # --- dàn trang
+        self.progress(0.88, "Dàn trang: dựng PDF tiếng Việt giữ nguyên bố cục...")
         fonts = find_fonts(lcfg)
         out_pdf = out_dir / f"{pdf_path.stem}_VI.pdf"
         if page_range:
             out_pdf = out_dir / f"{pdf_path.stem}_VI_p{page_range[0]}-{page_range[1]}.pdf"
-        render_stats = render(pdf_path, out_pdf, pages, block_tr, fonts,
+        strict_pages: set[int] = set()
+        render_stats = render(pdf_path, out_pdf, pages, self._compose_blocks(units), fonts,
                               min_scale=lcfg.get("min_font_scale", 0.6), image_replacements=image_repl)
+
+        # --- đọc morat → sửa → dàn lại
+        self.proof_log: list[dict] = []
+        pcfg = self.cfg.get("proof", {})
+        if pcfg.get("enabled", True):
+            only = None
+            for rnd in range(int(pcfg.get("rounds", 2))):
+                self.progress(0.9, f"Đọc morat vòng {rnd + 1}...")
+                issues = self._proof_pages(pdf_path, out_pdf, pages, render_stats, only)
+                for it in issues:
+                    it["round"] = rnd + 1
+                self.proof_log.extend(issues)
+                changed, relayout = self._apply_proof_fixes(issues, units)
+                new_strict = relayout - strict_pages
+                if changed:
+                    self._requalify(changed)
+                if not changed and not new_strict:
+                    break
+                strict_pages |= relayout
+                render_stats = render(pdf_path, out_pdf, pages, self._compose_blocks(units), fonts,
+                                      min_scale=lcfg.get("min_font_scale", 0.6), image_replacements=image_repl,
+                                      strict_pages=strict_pages)
+                only = relayout  # vòng sau chỉ đọc lại các trang vừa sửa
         if page_range:
             self._trim_pages(out_pdf, page_range)
 
@@ -205,7 +263,8 @@ class Translator:
         report_path = None
         if self.cfg.get_path("output.bilingual_report", True):
             report_path = write_report(out_dir / f"{pdf_path.stem}_VI_report.html", pdf_path.name, units, summary,
-                                       brief, list(self.decided.values()))
+                                       brief, list(self.decided.values()), self.proof_log,
+                                       self.cfg.get("branding", {}))
         self.db.job_upsert(job_id, status="done", usage_json=usage)
         self.progress(1.0, "Hoàn tất")
         return {"output_pdf": str(out_pdf), "report": str(report_path) if report_path else None, **summary}
@@ -349,7 +408,8 @@ class Translator:
                                  payload=payload)
         return {s["id"]: s for s in res.get("segments", [])}
 
-    def _review_call(self, batch: list[Unit], auto: dict[str, list[Issue]]) -> dict[str, dict]:
+    def _review_call(self, batch: list[Unit], auto: dict[str, list[Issue]], kind: str = "review") -> dict[str, dict]:
+        """kind = "revise" (hiệu đính chuyên môn) | "review" (biên tập ngôn ngữ)."""
         terms = {t["id"]: t for u in batch for t in u.terms}
         payload = {
             "glossary": format_terms_for_prompt(list(terms.values())),
@@ -357,12 +417,23 @@ class Translator:
             "segments": [{"id": u.id, "role": u.role, "source": u.src, "translation": u.tgt,
                           "auto_check": [i.message for i in auto.get(u.id, [])]} for u in batch],
         }
-        res = self.llm.json_call(task="review", system=self.system_review,
-                                 user="Thẩm định và biên tập các đoạn sau:\n\n" +
+        system = self.system_revise if kind == "revise" else self.system_review
+        intro = ("Hiệu đính chuyên môn các đoạn sau (đối chiếu bản gốc):\n\n" if kind == "revise"
+                 else "Biên tập ngôn ngữ các đoạn sau:\n\n")
+        res = self.llm.json_call(task=kind, system=system,
+                                 user=intro +
                                       json.dumps(payload, ensure_ascii=False, indent=1),
                                  schema=P.REVIEW_SCHEMA, effort=self.cfg.get_path("llm.review_effort", "high"),
                                  payload=payload)
         return {s["id"]: s for s in res.get("segments", [])}
+
+    def _check_text(self, u: Unit, tgt: str) -> list[Issue]:
+        cur = u.tgt
+        u.tgt = tgt
+        try:
+            return self._check(u)
+        finally:
+            u.tgt = cur
 
     def _check(self, u: Unit) -> list[Issue]:
         issues = check(u.src, u.tgt, rules=self.rules, number_format=self.number_format, placeholders=u.mapping,
@@ -407,17 +478,29 @@ class Translator:
                     auto[u.id].append(Issue("error", "research",
                                             f"Sau tra cứu: '{t['en']}' nên dịch là '{t['vi']}' ({t.get('note', '')})"))
 
-        # 4. biên tập
+        # 4. hiệu đính chuyên môn → 5. biên tập ngôn ngữ
+        wcfg = self.cfg.get("workflow", {})
         review_mode = tcfg.get("review_mode", "always")
-        if review_mode == "always" or any(auto.values()):
+        steps = [k for k, on in (("revise", wcfg.get("revise", True)), ("review", wcfg.get("edit", True))) if on]
+        for kind in steps:
+            if kind == "review":
+                auto = {u.id: self._check(u) for u in batch}
+            if review_mode != "always" and not any(auto.values()):
+                continue
             to_review = batch if review_mode == "always" else [u for u in batch if auto[u.id]]
-            rv = self._review_call(to_review, auto)
+            rv = self._review_call(to_review, auto, kind=kind)
+            label = "Hiệu đính" if kind == "revise" else "Biên tập"
             for u in to_review:
                 r = rv.get(u.id)
-                if r and r.get("final"):
-                    u.tgt = r["final"]
-                    u.score = int(r.get("score", 0))
-                    u.issues = [{"severity": "info", "code": "review", "message": m} for m in r.get("problems", [])]
+                if not r or not r.get("final"):
+                    continue
+                old = u.tgt
+                u.tgt = r["final"]
+                if kind == "review" and has_errors(self._check(u)) and not has_errors(self._check_text(u, old)):
+                    u.tgt = old  # biên tập ngôn ngữ không được làm phát sinh lỗi nội dung
+                u.score = int(r.get("score", 0))
+                u.issues = u.issues + [{"severity": "info", "code": kind, "message": f"{label}: {m}"}
+                                       for m in r.get("problems", [])]
         for u in batch:
             if not u.score:
                 u.score = 80
@@ -447,12 +530,15 @@ class Translator:
         cert = int(self.cfg.get_path("quality.certify_score", 95))
         for u in batch:
             final_issues = self._check(u)
-            u.issues = u.issues + [i.as_dict() for i in final_issues]
+            u.issues = [i for i in u.issues if not i.get("auto")] + [{**i.as_dict(), "auto": True}
+                                                                     for i in final_issues]
             severe = [e for e in u.mqm if e.get("severity") in ("critical", "major")]
+            strict_block = self.cfg.get_path("quality.strict_certify", True) and any(
+                i.code in STRICT_WARNINGS for i in final_issues)
             if has_errors(final_issues) or any(e.get("severity") == "critical" for e in u.mqm):
                 u.status = "needs_review"
                 u.score = min(u.score, 60)
-            elif u.score >= cert and not severe:
+            elif u.score >= cert and not severe and not strict_block:
                 u.status = "certified"
             else:
                 u.status = "done"
@@ -469,42 +555,71 @@ class Translator:
         words = max(40, len(src_plain.split()))
         return max(0, min(100, round(100 - penalty * 100 / words)))
 
-    def _eval_call(self, batch: list[Unit]) -> dict[str, dict]:
+    def _judges(self) -> list[str]:
+        j = self.cfg.get_path("quality.judges", ["clinical", "linguistic"])
+        return list(j) if j else ["clinical"]
+
+    def _eval_call(self, batch: list[Unit], focus: str) -> dict[str, dict]:
         terms = {t["id"]: t for u in batch for t in u.terms}
         payload = {
             "glossary": format_terms_for_prompt(list(terms.values())),
             "decided_terms": self._decided_for(" ".join(u.plain_src for u in batch)),
             "segments": [{"id": u.id, "role": u.role, "source": u.src, "translation": u.tgt} for u in batch],
         }
-        res = self.llm.json_call(task="evaluate", system=self.system_eval,
+        res = self.llm.json_call(task="evaluate", system=self.system_eval[focus],
                                  user="Đánh giá độc lập các bản dịch sau theo khung MQM:\n\n" +
                                       json.dumps(payload, ensure_ascii=False, indent=1),
                                  schema=P.EVAL_SCHEMA, effort=self.cfg.get_path("llm.review_effort", "high"),
                                  payload=payload)
         return {s["id"]: s for s in res.get("segments", [])}
 
+    @staticmethod
+    def _merge_errors(lists: list[list[dict]]) -> list[dict]:
+        """Gộp lỗi của nhiều giám khảo; lỗi trùng (cùng loại, cùng cụm) chỉ tính một lần, lấy mức nặng hơn."""
+        rank = {"critical": 3, "major": 2, "minor": 1}
+        merged: dict[tuple, dict] = {}
+        for errs in lists:
+            for e in errs:
+                key = (e.get("category", ""), normalize_text(e.get("target_span", ""))[:40])
+                if key not in merged or rank.get(e.get("severity"), 1) > rank.get(merged[key].get("severity"), 1):
+                    merged[key] = e
+        return list(merged.values())
+
     def _evaluate(self, batch: list[Unit], context: dict, rounds: int = 2) -> None:
+        """Hội đồng giám khảo độc lập (mặc định: chuyên môn + ngôn ngữ) chấm MQM; lỗi nặng → sửa → chấm lại."""
+        judges = self._judges()
         pending = list(batch)
         for rnd in range(max(1, rounds)):
-            ev = self._eval_call(pending)
+            if len(judges) > 1:
+                with ThreadPoolExecutor(max_workers=len(judges)) as ex:
+                    results = dict(zip(judges, ex.map(lambda f: self._eval_call(pending, f), judges)))
+            else:
+                results = {judges[0]: self._eval_call(pending, judges[0])}
             next_round = []
             for u in pending:
-                r = ev.get(u.id, {"errors": [], "corrected": ""})
-                errors = r.get("errors", [])
+                per_judge = []
+                corrections = []
+                for focus, res in results.items():
+                    r = res.get(u.id, {"errors": [], "corrected": ""})
+                    errs = [{**e, "judge": focus} for e in r.get("errors", [])]
+                    per_judge.append(errs)
+                    if any(e.get("severity") in ("critical", "major") for e in errs) and r.get("corrected"):
+                        corrections.append(r["corrected"].strip())
+                errors = self._merge_errors(per_judge)
                 u.mqm = errors
                 u.score = self.mqm_score(u.plain_src, errors)
                 severe = [e for e in errors if e.get("severity") in ("critical", "major")]
                 if not severe or rnd == rounds - 1:
                     continue
-                # áp dụng bản sửa của giám khảo nếu qua kiểm tra máy, nếu không thì dịch lại có chỉ dẫn
-                corrected = (r.get("corrected") or "").strip()
-                if corrected:
+                applied = False
+                if len(corrections) == 1:  # chỉ một giám khảo đề xuất sửa → thử áp dụng nếu qua kiểm tra máy
                     old = u.tgt
-                    u.tgt = corrected
+                    u.tgt = corrections[0]
                     if has_errors(self._check(u)):
                         u.tgt = old
-                        corrected = ""
-                if not corrected:
+                    else:
+                        applied = True
+                if not applied:
                     fixed = self._translate_call([u], context, task="refine", issues={u.id: [
                         f"[{e['severity']}/{e['category']}] {e.get('explanation', '')} → {e.get('fix', '')}"
                         for e in severe]})
@@ -515,11 +630,12 @@ class Translator:
                 break
             pending = next_round
         for u in batch:
-            u.issues = u.issues + [{"severity": "error" if e.get("severity") == "critical" else
-                                    ("warning" if e.get("severity") == "major" else "info"),
-                                    "code": f"mqm_{e.get('category', '')}",
-                                    "message": f"[MQM {e.get('severity')}] {e.get('explanation', '')}"}
-                                   for e in u.mqm]
+            u.issues = [i for i in u.issues if not i.get("code", "").startswith("mqm_")] + [
+                {"severity": "error" if e.get("severity") == "critical" else
+                 ("warning" if e.get("severity") == "major" else "info"),
+                 "code": f"mqm_{e.get('category', '')}",
+                 "message": f"[MQM {e.get('severity')} – giám khảo {e.get('judge', '')}] {e.get('explanation', '')}"}
+                for e in u.mqm]
 
     def _save(self, u: Unit) -> None:
         self.db.segment_save(self.job_id, u.id, page=u.page, kind=u.kind, role=u.role, src=u.src, tgt=u.tgt,
@@ -846,6 +962,12 @@ class Translator:
             "from_tm": sum(1 for u in text_units if u.status == "tm"),
             "scanned_pages": getattr(self, "n_scanned", 0),
             "term_enrichment": getattr(self, "enrich_stats", {}),
+            "terminology_prep": getattr(self, "termprep_stats", {}),
+            "consistency": getattr(self, "consistency_stats", {}),
+            "proof": {"issues": len(getattr(self, "proof_log", [])),
+                      "fixed_text": sum(1 for u in text_units for i in u.issues if i.get("code") == "proof"),
+                      "relayout_pages": len({i["page"] for i in getattr(self, "proof_log", [])
+                                             if i.get("type") in ("overlap", "cutoff", "illegible", "misplaced")})},
             "needs_review": sum(1 for u in text_units if u.status == "needs_review"),
             "failed": sum(1 for u in text_units if u.status == "failed"),
             "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
@@ -855,6 +977,13 @@ class Translator:
             "usage": usage,
             "seconds": round(seconds, 1),
         }
+
+
+def _fmt_dur(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m = rem // 60
+    return f"{h} giờ {m} phút" if h else f"{max(1, m)} phút"
 
 
 def _split_proportional(text: str, weights: list[int]) -> list[str]:
@@ -871,19 +1000,64 @@ def _split_proportional(text: str, weights: list[int]) -> list[str]:
     return out
 
 
-def estimate(pdf_path: str | Path, model: str = "claude-opus-5-5") -> dict:
-    """Ước tính chi phí thô trước khi dịch."""
+# Thời gian xử lý mặc định (giây, tuần tự) cho mỗi 1.000 ký tự nguồn ở từng công đoạn, effort "high".
+# Được thay bằng số đo thực tế của máy bạn sau các lần dịch (bảng perf).
+STAGE_SECONDS_PER_KCHAR = {
+    "translate": 25, "revise": 20, "edit": 18, "judge_each": 14, "refine_overhead": 0.25,
+    "termprep": 3, "consistency": 6,
+}
+EFFORT_FACTOR = {"low": 0.5, "medium": 0.75, "high": 1.0, "xhigh": 1.35, "max": 1.8}
+PROOF_SECONDS_PER_PAGE = 35
+
+
+def estimate(pdf_path: str | Path, model: str = "claude-opus-5-5", cfg: Config | None = None,
+             db: Database | None = None) -> dict:
+    """Ước tính chi phí & thời gian trước khi dịch."""
     from .llm import PRICES
+    from .scan import is_scanned
     pages = extract(pdf_path, ocr_scans=False)  # không OCR khi ước tính (nhanh)
     doc = pymupdf.open(str(pdf_path))
-    from .scan import is_scanned
     n_scan = sum(1 for pg in doc if is_scanned(pg))
     doc.close()
     chars = sum(len(b.plain) for p in pages for b in p.blocks if not b.keep) + n_scan * 3000
     n_img = sum(len(p.images) for p in pages)
-    pin, pout, _ = PRICES.get(model, PRICES["claude-opus-5-5"])
-    # ~ mỗi 1.000 ký tự: ~1.500 token vào, ~2.000 token ra (dịch + suy luận + biên tập)
     k = chars / 1000
-    cost = k * (1500 * pin + 2000 * pout) / 1e6
+
+    get = (lambda path, d: cfg.get_path(path, d)) if cfg else (lambda path, d: d)
+    judges = len(get("quality.judges", ["clinical", "linguistic"]) or [1])
+    workers = max(1, int(get("translation.workers", 3)))
+    effort = EFFORT_FACTOR.get(get("llm.effort", "high"), 1.0)
+    revise = get("workflow.revise", True)
+    edit = get("workflow.edit", True)
+    proof_on = get("proof.enabled", True) and get("proof.vision", True)
+
+    # ---- chi phí: token vào/ra mỗi 1.000 ký tự theo số công đoạn gọi model
+    calls = 1 + int(revise) + int(edit) + judges * 1.4 + 0.3      # 1.4 = vòng chấm lại; 0.3 = dịch lại
+    pin, pout, _ = PRICES.get(model, PRICES["claude-opus-5-5"])
+    cost = k * calls * (700 * pin + 900 * pout * effort) / 1e6
+    cost += k * (300 * pin + 150 * pout) / 1e6 * 2                 # chuẩn bị thuật ngữ + biên tập toàn văn
+    if proof_on:
+        cost += len(pages) * (3500 * pin + 500 * pout * effort) / 1e6
+    cost += n_scan * (2500 * pin + 1500 * pout) / 1e6               # sửa lỗi OCR trang scan
+
+    # ---- thời gian
+    st = STAGE_SECONDS_PER_KCHAR
+    per_k = (st["translate"] + st["revise"] * revise + st["edit"] * edit + st["judge_each"] * 1.4) \
+        * effort * (1 + st["refine_overhead"])
+    measured = None
+    if db is not None:
+        rows = db.query("SELECT sec_per_kchar, workers FROM perf ORDER BY created_at DESC LIMIT 10")
+        if rows:  # dùng số đo thực tế (quy về 1 luồng)
+            vals = sorted(r["sec_per_kchar"] * r["workers"] for r in rows)
+            measured = vals[len(vals) // 2]
+            per_k = measured
+    core = k * per_k / workers
+    extra = k * (st["termprep"] + st["consistency"]) * effort / workers
+    proof_t = len(pages) * PROOF_SECONDS_PER_PAGE * effort / workers if proof_on else 0
+    total = core + extra + proof_t + n_scan * 40 / workers
     return {"pages": len(pages), "scanned_pages": n_scan, "chars": chars, "images": n_img,
-            "estimated_cost_usd_low": round(cost * 0.7, 2), "estimated_cost_usd_high": round(cost * 1.5, 2)}
+            "a4_equivalent_pages": round(chars / 3000, 1),
+            "estimated_cost_usd_low": round(cost * 0.7, 2), "estimated_cost_usd_high": round(cost * 1.5, 2),
+            "estimated_time_low": _fmt_dur(total * 0.7), "estimated_time_high": _fmt_dur(total * 1.6),
+            "time_basis": "đo thực tế trên máy này" if measured else "ước lượng mặc định (chưa có số đo)",
+            "workers": workers}

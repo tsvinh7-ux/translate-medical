@@ -122,12 +122,14 @@ def _free_space_sides(b: TextBlock, page: PageInfo) -> tuple[float, float]:
 
 
 def render(src_pdf: str | Path, out_pdf: str | Path, pages: list[PageInfo], translations: dict[str, str],
-           fonts: FontSet, min_scale: float = 0.6, image_replacements: dict[int, object] | None = None) -> dict:
+           fonts: FontSet, min_scale: float = 0.6, image_replacements: dict[int, object] | None = None,
+           strict_pages: set[int] | None = None) -> dict:
     """translations: block_id → HTML tiếng Việt (đã khôi phục mã giữ chỗ)."""
     doc = pymupdf.open(str(src_pdf))
     css_fonts = fonts.css()
     archive = fonts.archive()
-    stats = {"blocks": 0, "shrunk": 0, "overflow": []}
+    stats = {"blocks": 0, "shrunk": 0, "overflow": [], "overlaps": []}
+    strict_pages = strict_pages or set()
     for p in pages:
         page = doc[p.number]
         todo = [b for b in p.blocks if not b.keep and translations.get(b.id)]
@@ -161,7 +163,7 @@ def render(src_pdf: str | Path, out_pdf: str | Path, pages: list[PageInfo], tran
         for b in todo:
             rect = pymupdf.Rect(b.bbox)
             rect.x1 += 0.5  # bù sai số đo
-            if len(b.line_rects) == 1 and b.rotate == 0:
+            if len(b.line_rects) == 1 and b.rotate == 0 and p.number not in strict_pages:
                 # khối một dòng (tiêu đề, nhãn): cho phép giãn ngang vào khoảng trống thay vì xuống dòng
                 free_l, free_r = _free_space_sides(b, p)
                 if b.align == "center":
@@ -183,7 +185,7 @@ def render(src_pdf: str | Path, out_pdf: str | Path, pages: list[PageInfo], tran
             spare, sc = sp.insert_htmlbox(rect, html_doc, css=css_fonts, archive=archive, scale_low=min_scale,
                                           rotate=b.rotate)
             sc = sc if spare >= 0 else min_scale
-            if sc < 0.98 and b.rotate == 0:
+            if sc < 0.98 and b.rotate == 0 and p.number not in strict_pages:
                 # ưu tiên dùng khoảng trắng phía dưới trước khi thu nhỏ chữ
                 below = min(_free_space_below(b, p), rect.height)
                 if below > 2:
@@ -200,20 +202,28 @@ def render(src_pdf: str | Path, out_pdf: str | Path, pages: list[PageInfo], tran
             key = (b.role, round(b.font_size))
             group_scale[key] = min(group_scale.get(key, 1.0), need[b.id])
 
+        placed: list[tuple[str, pymupdf.Rect]] = []
         for b, rect, body in prepared:
             size = b.font_size * group_scale[(b.role, round(b.font_size))]
             html_doc = f'<div style="{_block_css(b, size)}">{body}</div>'
             spare, scale = page.insert_htmlbox(rect, html_doc, css=css_fonts, archive=archive,
                                                scale_low=min_scale, rotate=b.rotate)
             if spare < 0:
-                # không vừa: nới xuống khoảng trống phía dưới rồi cho phép thu nhỏ thêm
-                rect.y1 += _free_space_below(b, p)
+                # không vừa: nới xuống khoảng trống phía dưới (trừ trang dàn chặt) rồi cho phép thu nhỏ thêm
+                if p.number not in strict_pages:
+                    rect.y1 += _free_space_below(b, p)
                 spare, scale = page.insert_htmlbox(rect, html_doc, css=css_fonts, archive=archive,
                                                    scale_low=0, rotate=b.rotate)
                 stats["overflow"].append({"block": b.id, "page": p.number + 1, "scale": round(scale, 2)})
             if size * scale < b.font_size * 0.999:
                 stats["shrunk"] += 1
             stats["blocks"] += 1
+            used = pymupdf.Rect(rect.x0, rect.y0, rect.x1, rect.y1 - max(0.0, spare))
+            for other_id, other in placed:  # phát hiện chồng lấn giữa các khối đã đặt
+                inter = used & other
+                if not inter.is_empty and inter.width * inter.height > 4:
+                    stats["overlaps"].append({"page": p.number + 1, "blocks": [other_id, b.id]})
+            placed.append((b.id, used))
     for xref, (page_no, img) in (image_replacements or {}).items():
         from .images import replace_image
         try:

@@ -170,6 +170,13 @@ class ClaudeLLM:
         ]
         return self.json_call(task=task, system=system, user=content, schema=schema, effort=effort)
 
+    def vision_multi_json_call(self, *, task: str, system: list[dict], images: list[bytes], prompt: str,
+                               schema: dict, effort: str = "high", payload: Any = None) -> dict:
+        content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                                "data": base64.standard_b64encode(im).decode()}} for im in images]
+        content.append({"type": "text", "text": prompt})
+        return self.json_call(task=task, system=system, user=content, schema=schema, effort=effort, payload=payload)
+
 
 class MockLLM:
     """Giả lập để kiểm thử luồng xử lý mà không gọi API (bản dịch giả có tiền tố [VI])."""
@@ -187,9 +194,15 @@ class MockLLM:
         if task in ("translate", "refine"):
             return {"segments": [{"id": s["id"], "translation": _mock_vi(s["text"]), "uncertain_terms": []}
                                  for s in p.get("segments", [])]}
-        if task == "review":
+        if task in ("review", "revise"):
             return {"segments": [{"id": s["id"], "score": 90, "final": s["translation"], "problems": []}
                                  for s in p.get("segments", [])]}
+        if task in ("termprep", "extract_terms"):
+            return {"terms": []}
+        if task == "consistency":
+            return {"fixes": []}
+        if task == "proof":
+            return {"issues": []}
         if task == "evaluate":
             return {"segments": [{"id": s["id"], "errors": [], "corrected": ""} for s in p.get("segments", [])]}
         if task == "extract_terms":
@@ -208,6 +221,9 @@ class MockLLM:
         return '<json>{"terms": []}</json>'
 
     def vision_json_call(self, *, task, system, image_png, prompt, schema, effort="high", payload=None) -> dict:
+        return self.json_call(task=task, system=system, user=prompt, schema=schema, payload=payload)
+
+    def vision_multi_json_call(self, *, task, system, images, prompt, schema, effort="high", payload=None) -> dict:
         return self.json_call(task=task, system=system, user=prompt, schema=schema, payload=payload)
 
 

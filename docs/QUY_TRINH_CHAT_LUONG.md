@@ -1,26 +1,22 @@
 # Quy trình đảm bảo chất lượng tự động (chuẩn MQM, không cần người duyệt)
 
-## 1. Quy trình cho mỗi lô đoạn văn
+## 1. Quy trình xuất bản (tương ứng quy trình của nhà xuất bản)
 
-```
-PDF ─► Phân tích bố cục (cột, tiêu đề, chú thích, bảng, công thức, hình, tài liệu tham khảo)
-    │    └─ trang SCAN: OCR theo đoạn → Claude đối chiếu ảnh sửa lỗi OCR
-    ─► AI đọc tổng quan tài liệu: chuyên ngành, độc giả, văn phong, thuật ngữ then chốt
-    ─► Với mỗi lô ~6.000 ký tự:
-         1. Tra bộ nhớ dịch: đoạn ĐÃ CHỨNG NHẬN khớp 100% → dùng lại (0 token)
-         2. DỊCH: ngữ cảnh mục + đoạn trước + thuật ngữ bắt buộc + câu tương tự đã chứng nhận
-         3. Thuật ngữ chưa chắc → TRA CỨU WEB → chốt cho cả tài liệu → dịch lại đoạn liên quan
-         4. TỰ ĐỐI CHIẾU BẰNG MÁY (bảng mục 2)
-         5. BIÊN TẬP VIÊN AI sửa văn phong và nội dung
-         6. Máy còn bắt lỗi → DỊCH LẠI có chỉ dẫn (tối đa max_refine_rounds vòng)
-         7. GIÁM KHẢO ĐỘC LẬP chấm theo khung MQM (mục 3)
-              còn lỗi critical/major → áp bản sửa của giám khảo (nếu qua kiểm tra máy) hoặc dịch lại
-              → CHẤM LẠI (eval_rounds)
-         8. CHỨNG NHẬN: điểm ≥ certify_score, không lỗi nặng, không lỗi máy → bộ nhớ dịch "đã duyệt"
-    ─► Dịch chữ trong hình (OCR → dịch → chấm MQM → vẽ lại)
-    ─► Dựng PDF tiếng Việt giữ bố cục
-    ─► TỰ LÀM GIÀU TỪ ĐIỂN từ các đoạn đạt chuẩn (mục 4) + báo cáo song ngữ HTML
-```
+| # | Công đoạn | Ai làm | Nội dung |
+|---|---|---|---|
+| 0 | Phân tích bản thảo | Máy | Bố cục, cột, tiêu đề, chú thích, bảng, công thức, hình. Trang **scan** được OCR theo đoạn văn, sau đó Claude đối chiếu ảnh để sửa lỗi OCR |
+| 1 | **Chuẩn bị thuật ngữ toàn văn** | Claude + tra cứu web | Quét **cả cuốn** trước khi dịch, lập bảng thuật ngữ. Thuật ngữ có nhiều cách dịch hoặc chưa chắc được tra cứu nguồn uy tín rồi **chốt dùng thống nhất cho cả sách** |
+| 2 | **Dịch** | Dịch giả AI | Mỗi lô dịch kèm ngữ cảnh mục, đoạn trước, thuật ngữ bắt buộc và câu đã chứng nhận tương tự |
+| 3 | **Hiệu đính chuyên môn** | AI vai bác sĩ chuyên khoa kiêm dược sĩ | Đối chiếu **từng câu** với bản gốc: nghĩa, số liệu, liều, đơn vị, chỉ định/chống chỉ định, mức khuyến cáo, thuật ngữ chuyên ngành |
+| 4 | **Biên tập ngôn ngữ** | AI vai biên tập viên nhà xuất bản | Văn phong xuất bản, ngữ pháp, chính tả, độ mạch lạc. **Không được đổi** nội dung chuyên môn; máy chặn mọi chỉnh sửa làm phát sinh lỗi nội dung |
+| 5 | Kiểm tra máy và dịch lại | Máy + AI | Số liệu, liều–đơn vị, phủ định, ký hiệu, sót chưa dịch… Còn lỗi thì dịch lại có chỉ dẫn (tối đa 3 vòng) |
+| 6 | **Hội đồng giám khảo MQM** | 2 giám khảo độc lập: chuyên môn + ngôn ngữ | Chấm theo chuẩn MQM. Còn lỗi critical/major thì sửa và chấm lại (tối đa 3 vòng). Đoạn đạt chuẩn được **tự chứng nhận** |
+| 7 | **Biên tập toàn văn** | AI vai tổng biên tập | Đọc **liền mạch từng chương** để thống nhất thuật ngữ, tiêu đề, cách viết tắt và văn phong giữa các đoạn. Đoạn bị sửa phải qua hội đồng giám khảo lại |
+| 8 | **Dàn trang** | Máy | Đặt chữ Việt vào đúng bố cục gốc, giữ hình, bảng và công thức |
+| 9 | **Đọc morat (đọc bông)** | Máy + AI nhìn ảnh trang | So **ảnh trang gốc với ảnh trang dịch**: lỗi chính tả, sót dịch, chữ chồng/tràn/quá nhỏ, mất nội dung, chữ trong hình. Lỗi chữ được **tự sửa**; trang lỗi bố cục được **dàn lại chặt** rồi đọc lại (2 vòng) |
+| 10 | Làm giàu dữ liệu và báo cáo | Máy + AI | Đoạn đạt chuẩn vào bộ nhớ dịch; thuật ngữ đủ bằng chứng được tự duyệt. Báo cáo song ngữ ghi lại toàn bộ quá trình |
+
+Mỗi công đoạn đều **có điểm lưu**. Nếu bị ngắt, chạy lại sẽ tiếp tục từ chỗ dừng. Phần đã xử lý không bị tính tiền lại vì kết quả được lưu đệm.
 
 ## 2. Tự đối chiếu bằng máy (không tốn token)
 
@@ -50,10 +46,10 @@ MQM (Multidimensional Quality Metrics) là khung đánh giá chất lượng d�
 | major | sai nghĩa không gây hại trực tiếp, thuật ngữ không chuẩn, câu khó hiểu | 5 |
 | minor | văn phong chưa tự nhiên, chính tả nhỏ, dấu câu | 1 |
 
-**Điểm** = 100 − tổng phạt × 100 / số từ (tối thiểu tính trên 40 từ). Ví dụ một đoạn 60 từ có 1 lỗi minor đạt khoảng 98 điểm. Đoạn có 1 lỗi major chỉ còn khoảng 92 điểm, không đạt ngưỡng 95.
+**Điểm** = 100 − tổng phạt × 100 / số từ (tối thiểu tính trên 40 từ). Lỗi của 2 giám khảo được gộp lại; lỗi trùng chỉ tính một lần, lấy mức nặng hơn. Ví dụ: đoạn 60 từ có 1 lỗi minor đạt khoảng 98 điểm; đoạn có 1 lỗi major chỉ còn khoảng 92 điểm.
 
 **Kết quả mỗi đoạn:**
-- **Đạt chuẩn (certified):** điểm ≥ 95 (`quality.certify_score`), không còn lỗi critical/major, không còn lỗi máy. Đoạn được lưu vào bộ nhớ dịch ở mức *đã duyệt*, dùng lại không tốn token và làm mẫu tham khảo cho các tài liệu sau.
+- **Đạt chuẩn (certified):** điểm ≥ **97** (`quality.certify_score`), không còn lỗi critical/major, không còn **bất kỳ** lỗi hay cảnh báo máy nào (`strict_certify`). Đoạn được lưu vào bộ nhớ dịch ở mức *đã duyệt*, dùng lại không tốn token và làm mẫu tham khảo cho các tài liệu sau.
 - **Đạt (done):** không có lỗi nặng nhưng điểm dưới ngưỡng. Đoạn vẫn được dùng trong PDF nhưng không được dùng lại tự động.
 - **Còn lỗi nặng (needs_review):** còn lỗi critical hoặc lỗi máy sau mọi vòng sửa. Đoạn được đưa lên đầu báo cáo.
 
@@ -61,26 +57,33 @@ MQM (Multidimensional Quality Metrics) là khung đánh giá chất lượng d�
 
 - **Đoạn dịch:** chỉ đoạn **đạt chuẩn MQM** mới vào bộ nhớ dịch "đã duyệt". Kho dữ liệu vì vậy chỉ tăng thêm bản dịch chất lượng cao.
 - **Thuật ngữ:** mỗi cặp thuật ngữ phải vượt qua 3 lớp trước khi được tự duyệt:
-  1. **Bằng chứng.** Cặp phải được dùng nhất quán trong ≥ `term_min_evidence` (2) đoạn **đạt chuẩn**. Số bằng chứng được cộng dồn qua nhiều tài liệu.
-  2. **Kiểm định.** Giám khảo xác nhận đây là thuật ngữ chuẩn (`standard`) với độ tin cậy ≥ 0,85.
+  1. **Bằng chứng.** Cặp phải được dùng nhất quán trong ≥ `term_min_evidence` (3) đoạn **đạt chuẩn**. Số bằng chứng được cộng dồn qua nhiều tài liệu.
+  2. **Kiểm định.** Giám khảo xác nhận đây là thuật ngữ chuẩn (`standard`) với độ tin cậy ≥ 0,9.
   3. **Không xung đột.** Thuật ngữ đã duyệt trước đó không bao giờ bị ghi đè.
 
   Nếu giám khảo cho rằng có cách gọi chuẩn hơn, thuật ngữ được thay bằng cách gọi đó và phải tích luỹ lại bằng chứng từ đầu.
-- **Thuật ngữ tra web** được tự duyệt ngay khi có độ tin cậy ≥ 0,85 và ≥ 2 nguồn, trong đó ít nhất một nguồn uy tín (gov.vn, edu.vn, Bộ Y tế, Dược thư, WHO, NIH…).
+- **Thuật ngữ tra web** được tự duyệt ngay khi có độ tin cậy ≥ 0,9 và ≥ 2 nguồn, trong đó ít nhất một nguồn uy tín (gov.vn, edu.vn, Bộ Y tế, Dược thư, WHO, NIH…).
 
 Kết quả: càng dịch nhiều sách cùng chuyên ngành, từ điển và bộ nhớ dịch càng giàu. Bản dịch vì thế nhất quán hơn và rẻ hơn.
 
-## 5. Cấu hình
+## 5. Cấu hình chế độ khắt khe (mặc định)
 
 ```yaml
 llm:
-  model: claude-opus-5-5
-  effort: high               # xhigh / max cho sách rất khó
+  effort: xhigh              # max nếu muốn kỹ nhất
+  review_effort: xhigh
+translation:
+  max_refine_rounds: 3
+workflow: {revise: true, edit: true, consistency: true}
+terminology: {prepass: true}
 quality:
-  independent_eval: true
-  eval_rounds: 2
-  certify_score: 95          # nâng lên 97–98 nếu muốn khắt khe hơn
-  term_min_evidence: 2       # nâng lên 3 nếu muốn thận trọng hơn khi tự duyệt thuật ngữ
+  judges: [clinical, linguistic]
+  eval_rounds: 3
+  certify_score: 97
+  strict_certify: true
+  term_min_evidence: 3
+  term_min_confidence: 0.9
+proof: {enabled: true, vision: true, rounds: 2}
 ```
 
 ## 6. PDF scan

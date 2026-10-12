@@ -87,6 +87,16 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at REAL
 );
 
+CREATE TABLE IF NOT EXISTS perf (
+    job_id TEXT,
+    chars INTEGER,
+    seconds REAL,
+    sec_per_kchar REAL,               -- giây thực tế / 1.000 ký tự (đã chạy song song `workers` luồng)
+    workers INTEGER,
+    effort TEXT,
+    created_at REAL
+);
+
 CREATE TABLE IF NOT EXISTS segments (
     job_id TEXT,
     seg_id TEXT,
@@ -323,6 +333,11 @@ class Database:
             if isinstance(v, (dict, list)):
                 v = json.dumps(v, ensure_ascii=False)
             self.execute(f"UPDATE jobs SET {k}=?, updated_at=? WHERE job_id=?", (v, now, job_id))
+
+    def perf_add(self, job_id: str, chars: int, seconds: float, workers: int, effort: str) -> None:
+        self.execute("INSERT INTO perf (job_id, chars, seconds, sec_per_kchar, workers, effort, created_at) "
+                     "VALUES (?,?,?,?,?,?,?)", (job_id, chars, seconds, seconds / max(1, chars) * 1000, workers,
+                                                effort, time.time()))
 
     def job_get(self, job_id: str) -> dict | None:
         rows = self.query("SELECT * FROM jobs WHERE job_id=?", (job_id,))

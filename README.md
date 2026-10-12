@@ -18,7 +18,10 @@ Công cụ chạy **trên máy của bạn (localhost)** và gọi **Claude API*
 | 11 | Tiếng Việt 100%, giữ bố cục PDF | Xoá chữ gốc nhưng giữ nền, hình, đường kẻ, rồi đặt chữ Việt đúng vị trí, đúng cỡ chữ, màu, căn lề. Thứ tự đọc đúng với trang 2 cột |
 | 12 | Chạy localhost | Giao diện web `http://localhost:8501` và dòng lệnh. Chỉ cần mạng để gọi API |
 | ➕ | Cặp ngôn ngữ | Anh → Việt hoàn thiện. Kiến trúc module cho phép thêm ngôn ngữ nguồn khác → Việt, xem [docs/THEM_NGON_NGU.md](docs/THEM_NGON_NGU.md) |
+| ➕ | Quy trình xuất bản | Chuẩn bị thuật ngữ toàn văn → dịch → **hiệu đính chuyên môn** → **biên tập ngôn ngữ** → hội đồng giám khảo MQM → **biên tập toàn văn** → dàn trang → **đọc morat** (so ảnh trang) → sửa morat. Chi tiết trong [docs/QUY_TRINH_CHAT_LUONG.md](docs/QUY_TRINH_CHAT_LUONG.md) |
 | ➕ | PDF scan | Tự nhận diện trang scan, OCR theo đoạn văn, Claude sửa lỗi OCR, đi qua cùng quy trình chất lượng, giữ định dạng cơ bản |
+
+> **Trước khi triển khai, hãy đọc [docs/CHUAN_BI_TRIEN_KHAI.md](docs/CHUAN_BI_TRIEN_KHAI.md)**: những gì cần chuẩn bị và phê duyệt (API, máy, dữ liệu, thương hiệu), cách tính chi phí và thời gian dịch.
 
 ## Cài đặt (Windows / macOS / Linux)
 
@@ -50,7 +53,7 @@ python -m medtrans ui
 ## Sử dụng
 
 ### Giao diện web
-- **📄 Dịch tài liệu:** tải PDF lên, chọn chuyên ngành và phạm vi trang, *Ước tính chi phí*, rồi *Bắt đầu dịch*. Khi xong, tải về PDF tiếng Việt và báo cáo song ngữ.
+- **📄 Dịch tài liệu:** tải PDF lên, chọn chuyên ngành và phạm vi trang, *Ước tính* (chi phí và thời gian), rồi *Bắt đầu dịch*. Trong lúc chạy, giao diện hiển thị từng công đoạn xuất bản và thời gian còn lại. Khi xong, tải về PDF tiếng Việt và báo cáo song ngữ.
 - **✍️ Duyệt bản dịch** (tuỳ chọn): xem các đoạn chưa đạt chuẩn, sửa tay nếu muốn, rồi *Dựng lại PDF* (không tốn token).
 - **📚 Thuật ngữ:** nhập file, thêm nhanh, xem thuật ngữ đang tích luỹ bằng chứng hoặc đã tự duyệt, xuất CSV.
 - **🧠 Bộ nhớ dịch:** nhập và xuất TMX hoặc bảng song ngữ.
@@ -72,9 +75,9 @@ Kết quả nằm trong `workspace/output/`:
 - `<tên>_VI.pdf`: bản tiếng Việt giữ bố cục.
 - `<tên>_VI_report.html`: báo cáo song ngữ gồm điểm MQM và trạng thái từng đoạn (đạt chuẩn / đạt / còn lỗi nặng), lỗi đã phát hiện, thuật ngữ tra cứu kèm nguồn, thống kê tự làm giàu.
 
-## Chi phí tham khảo
+## Chi phí và thời gian
 
-Với `claude-opus-5-5`, `effort: high`, biên tập và giám khảo MQM luôn bật, chi phí ước tính khoảng **0,15–0,35 USD cho một trang sách chữ dày** (≈3.500 ký tự). Một cuốn 500 trang vào khoảng **75–175 USD**. Trang scan tốn thêm một lượt Claude đọc ảnh để sửa OCR. Tài liệu càng về sau càng rẻ nhờ bộ nhớ dịch và prompt caching. Dùng `estimate` để xem số cụ thể cho từng file. Số thực tế được ghi trong báo cáo.
+Chi phí tính theo **toàn văn** (số ký tự thực tế), quy đổi tham khảo 1 trang A4 ≈ 3.000 ký tự. Với cấu hình khắt khe mặc định, ước tính khoảng **0,4–0,8 USD và 2–4,5 phút cho mỗi trang A4** (3 luồng song song). Xem [docs/CHUAN_BI_TRIEN_KHAI.md](docs/CHUAN_BI_TRIEN_KHAI.md). Lệnh `estimate` cho số cụ thể từng file, và tự hiệu chỉnh theo tốc độ đo được trên máy bạn.
 
 ## Cấu trúc
 
@@ -87,6 +90,8 @@ medtrans/
   languages.py     hồ sơ ngôn ngữ nguồn (cặp ngôn ngữ → tiếng Việt)
   pdf_extract.py   phân tích bố cục: khối chữ, định dạng, vai trò, thứ tự đọc, công thức, hình
   scan.py          PDF scan: OCR theo đoạn, gộp đoạn, màu nền/màu chữ
+  stages.py        chuẩn bị thuật ngữ toàn văn, biên tập toàn văn, đọc morat
+  branding.py      nhận diện thương hiệu (giao diện, báo cáo)
   rules.py         che mã giữ chỗ / token phải giữ nguyên
   glossary.py      nhập thuật ngữ, khớp thuật ngữ trong câu
   db.py            SQLite: thuật ngữ, bộ nhớ dịch, cache tra cứu, tiến độ

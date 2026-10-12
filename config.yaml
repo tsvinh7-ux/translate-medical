@@ -5,8 +5,8 @@
 llm:
   provider: anthropic          # anthropic | mock (mock = chạy thử không tốn token)
   model: claude-opus-5-5       # model mạnh nhất cho chất lượng cao
-  effort: high                 # low | medium | high | xhigh | max  (max = kỹ nhất, tốn nhất)
-  review_effort: high          # mức suy luận cho vòng biên tập/đối chiếu
+  effort: xhigh                # low | medium | high | xhigh | max  (chế độ khắt khe: xhigh; tối đa: max)
+  review_effort: xhigh         # mức suy luận cho hiệu đính / biên tập / giám khảo
   max_tokens: 64000
   use_fallbacks: true          # tự chuyển model dự phòng nếu bị từ chối
   max_retries: 4
@@ -21,7 +21,7 @@ translation:
   drug_name_style: duoc_thu    # duoc_thu = theo Dược thư QG VN (amoxicilin) | inn = giữ INN gốc (amoxicillin)
   abbreviation_policy: first_gloss   # first_gloss = lần đầu ghi "tiếng Việt (ABBR)" | keep = giữ nguyên
   review_mode: always          # always = luôn chạy vòng biên tập 2 | on_issues = chỉ khi có lỗi
-  max_refine_rounds: 2         # số vòng sửa tối đa khi kiểm tra tự động còn lỗi
+  max_refine_rounds: 3         # số vòng sửa tối đa khi kiểm tra tự động còn lỗi
   web_research: true           # tra cứu Internet khi thuật ngữ không chắc chắn
   web_research_max_uses: 5
   web_preferred_domains:       # nguồn ưu tiên khi tra cứu
@@ -37,20 +37,40 @@ translation:
     - ncbi.nlm.nih.gov
     - medlineplus.gov
 
-quality:                       # đánh giá chuẩn MQM & tự chứng nhận (không cần người duyệt)
-  independent_eval: true       # giám khảo AI độc lập chấm từng đoạn theo khung MQM
-  eval_rounds: 2               # chấm → sửa lỗi critical/major → chấm lại
-  certify_score: 95            # điểm MQM tối thiểu để TỰ CHỨNG NHẬN đoạn dịch vào bộ nhớ dịch
-  term_min_evidence: 2         # số đoạn đạt chuẩn dùng nhất quán thuật ngữ trước khi kiểm định để tự duyệt
-  term_min_confidence: 0.85    # độ tin cậy tối thiểu của giám khảo khi kiểm định thuật ngữ
-  web_term_min_confidence: 0.85  # thuật ngữ tra web được tự duyệt khi đủ tin cậy...
+workflow:                      # quy trình xuất bản (bật/tắt từng công đoạn)
+  revise: true                 # HIỆU ĐÍNH chuyên môn (bác sĩ/dược sĩ đối chiếu bản gốc)
+  edit: true                   # BIÊN TẬP ngôn ngữ (văn phong xuất bản)
+  consistency: true            # BIÊN TẬP TOÀN VĂN (thống nhất thuật ngữ, văn phong giữa các đoạn/chương)
+  consistency_chunk_chars: 20000
+
+terminology:                   # CHUẨN BỊ THUẬT NGỮ TOÀN VĂN trước khi dịch
+  prepass: true
+  chunk_chars: 40000
+  uncertain_below: 0.85        # thuật ngữ tin cậy thấp hơn / có nhiều cách dịch → tra cứu web
+  research_max_terms: 150
+
+quality:                       # CHẾ ĐỘ KHẮT KHE – đánh giá chuẩn MQM & tự chứng nhận (không cần người duyệt)
+  independent_eval: true
+  judges: [clinical, linguistic]   # hội đồng 2 giám khảo độc lập: chuyên môn y khoa + ngôn ngữ xuất bản
+  eval_rounds: 3               # chấm → sửa lỗi critical/major → chấm lại (tối đa 3 vòng)
+  certify_score: 97            # điểm MQM tối thiểu để TỰ CHỨNG NHẬN
+  strict_certify: true         # còn bất kỳ cảnh báo máy nào (thuật ngữ, ký hiệu, số thừa, độ dài...) → không chứng nhận
+  term_min_evidence: 3         # số đoạn đạt chuẩn dùng nhất quán thuật ngữ trước khi kiểm định để tự duyệt
+  term_min_confidence: 0.9     # độ tin cậy tối thiểu của giám khảo khi kiểm định thuật ngữ
+  web_term_min_confidence: 0.9   # thuật ngữ tra web được tự duyệt khi đủ tin cậy...
   web_term_min_sources: 2        # ...và có ít nhất N nguồn (trong đó ≥1 nguồn uy tín)
+
+proof:                         # ĐỌC MORAT bản dàn trang
+  enabled: true
+  vision: true                 # Claude so ảnh trang gốc với trang dịch (chính tả, sót dịch, chồng lấn, tràn chữ)
+  rounds: 2                    # đọc → sửa → dàn lại → đọc lại trang đã sửa
+  dpi: 100
 
 memory:
   db_path: workspace/medtrans.db
   tm_reuse_threshold: 100      # % khớp để dùng lại bản dịch cũ KHÔNG gọi API (100 = khớp tuyệt đối)
   tm_fuzzy_threshold: 75       # % khớp để đưa bản dịch cũ vào làm tham khảo
-  tm_min_quality: 95           # chỉ tái sử dụng đoạn đã chứng nhận (điểm MQM >= ngưỡng)
+  tm_min_quality: 97           # chỉ tái sử dụng đoạn đã chứng nhận (điểm MQM >= ngưỡng)
   auto_enrich: true            # tự làm giàu từ điển thuật ngữ sau mỗi tài liệu
 
 scan:                          # PDF scan (trang là ảnh)
@@ -67,6 +87,15 @@ layout:
   image_ocr: tesseract         # tesseract | claude | off
   image_min_size: 120          # bỏ qua ảnh nhỏ hơn (pixel)
   keep_math_blocks: true       # giữ nguyên khối công thức toán
+
+branding:                      # nhận diện thương hiệu cho giao diện & báo cáo (thay bằng bộ nhận diện chính thức)
+  name: DMAG
+  app_title: DMAG MedTrans – Dịch thuật y khoa
+  primary_color: "#0B5394"     # TẠM THỜI – thay bằng mã màu chính thức của DMAG
+  secondary_color: "#F4F7FB"
+  text_color: "#1D1D1F"
+  font: "Be Vietnam Pro"       # font giao diện (Google Fonts, hỗ trợ tiếng Việt)
+  logo: assets/logo.png        # đặt file logo DMAG vào đây
 
 output:
   dir: workspace/output

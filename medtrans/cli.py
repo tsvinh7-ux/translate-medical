@@ -40,7 +40,7 @@ def cmd_translate(cfg, args) -> None:
 
 def cmd_estimate(cfg, args) -> None:
     from .translator import estimate
-    print(json.dumps(estimate(args.pdf, cfg.get_path("llm.model")), ensure_ascii=False, indent=2))
+    print(json.dumps(estimate(args.pdf, cfg.get_path("llm.model"), cfg=cfg, db=_db(cfg)), ensure_ascii=False, indent=2))
 
 
 def cmd_glossary(cfg, args) -> None:
@@ -104,6 +104,8 @@ def cmd_domain(cfg, args) -> None:
 
 
 def cmd_ui(cfg, args) -> None:
+    from .branding import write_streamlit_theme
+    write_streamlit_theme(cfg)
     subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app.py"), "--server.address", "localhost"])
 
 

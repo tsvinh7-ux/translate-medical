@@ -60,8 +60,9 @@ class FixingLLM(MockLLM):
 
 def test_evaluate_applies_fix_and_certifies(tmp_path):
     llm = FixingLLM()
-    tr = _translator(tmp_path, llm=llm)
-    tr.system_eval = tr.system_translate = []
+    tr = _translator(tmp_path, llm=llm, quality={"judges": ["clinical"], "certify_score": 97})
+    tr.system_translate = []
+    tr.system_eval = {"clinical": []}
     u = Unit(id="u1", page=0, role="body", blocks=[], src="Heart failure is a clinical syndrome.", mapping={},
              italic_spans=[], tgt="Hỏng tim là một hội chứng lâm sàng.")
     tr._evaluate([u], {}, rounds=2)
@@ -90,12 +91,43 @@ def _cert_unit(i: int) -> Unit:
 
 def test_term_auto_approved_with_evidence(tmp_path):
     tr = _translator(tmp_path, llm=TermLLM({}))
-    stats = tr._enrich_terms([_cert_unit(1)], "a.pdf")   # 1 bằng chứng < ngưỡng 2
-    assert stats["auto_approved"] == 0
-    stats = tr._enrich_terms([_cert_unit(2)], "b.pdf")   # cộng dồn qua tài liệu → 2
+    need = tr.cfg.get_path("quality.term_min_evidence", 3)
+    for i in range(need - 1):                            # chưa đủ bằng chứng → chưa duyệt
+        assert tr._enrich_terms([_cert_unit(i)], f"{i}.pdf")["auto_approved"] == 0
+    stats = tr._enrich_terms([_cert_unit(need)], "last.pdf")   # cộng dồn qua các tài liệu → đủ ngưỡng
     assert stats["auto_approved"] == 1
     approved = {t["en"]: t for t in tr.db.terms(["cardiology"])}
     assert approved["heart failure with preserved ejection fraction"]["vi"] == "suy tim phân suất tống máu bảo tồn"
+
+
+class PanelLLM(MockLLM):
+    """Hai giám khảo báo cùng một lỗi → chỉ tính một lần, giữ mức nặng hơn."""
+
+    def json_call(self, *, task, system, user, schema, effort="high", payload=None):
+        if task == "evaluate":
+            sev = "major" if system == ["clinical"] else "minor"
+            return {"segments": [{"id": s["id"], "errors": [
+                {"category": "terminology", "severity": sev, "source_span": "x", "target_span": "hỏng tim",
+                 "explanation": "", "fix": ""}], "corrected": ""} for s in payload["segments"]]}
+        return super().json_call(task=task, system=system, user=user, schema=schema, effort=effort, payload=payload)
+
+
+def test_judge_panel_merges_errors(tmp_path):
+    tr = _translator(tmp_path, llm=PanelLLM({}), quality={"judges": ["clinical", "linguistic"]})
+    tr.system_translate = []
+    tr.system_eval = {"clinical": ["clinical"], "linguistic": ["linguistic"]}
+    u = Unit(id="u", page=0, role="body", blocks=[], src="Heart failure.", mapping={}, italic_spans=[],
+             tgt="Hỏng tim.")
+    tr._evaluate([u], {}, rounds=1)
+    assert len(u.mqm) == 1 and u.mqm[0]["severity"] == "major" and u.score == 88
+    tr._finalize([u])
+    assert u.status == "done"  # lỗi major → không được chứng nhận
+
+
+def test_estimate_has_time_and_cost(tmp_path):
+    from medtrans.translator import estimate
+    est = estimate(make(tmp_path / "e.pdf"), cfg=load_config(), db=Database(tmp_path / "e.db"))
+    assert est["estimated_time_low"] and est["estimated_cost_usd_high"] > 0 and est["a4_equivalent_pages"] > 0
 
 
 def test_web_term_trust_rules(tmp_path):
@@ -165,3 +197,29 @@ def test_scanned_pdf_pipeline(tmp_path):
     assert res["scanned_pages"] == 2
     text = pymupdf.open(res["output_pdf"])[0].get_text()
     assert "[VI]" in text
+
+
+class ProofLLM(MockLLM):
+    """Người đọc morat phát hiện một lỗi chính tả ở trang 1 (chỉ ở lần đọc đầu)."""
+
+    def __init__(self):
+        super().__init__({})
+        self.proof_calls = 0
+
+    def json_call(self, *, task, system, user, schema, effort="high", payload=None):
+        if task == "proof":
+            self.proof_calls += 1
+            if payload["page"] == 0 and self.proof_calls <= 2:
+                return {"issues": [{"type": "typo", "severity": "minor", "quote": "[VI] Key points",
+                                    "correction": "Điểm chính", "description": "tiêu đề chưa dịch"}]}
+            return {"issues": []}
+        return super().json_call(task=task, system=system, user=user, schema=schema, effort=effort, payload=payload)
+
+
+def test_proof_fix_and_relayout(tmp_path):
+    llm = ProofLLM()
+    cfg = load_config(overrides={"llm": {"provider": "mock"}, "memory": {"db_path": str(tmp_path / "p.db")}})
+    res = Translator(cfg, llm=llm).run(make(tmp_path / "p.pdf"), out_dir=tmp_path)
+    text = pymupdf.open(res["output_pdf"])[0].get_text()
+    assert "Điểm chính" in text and "Key points" not in text
+    assert res["proof"]["fixed_text"] == 1

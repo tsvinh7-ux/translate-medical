@@ -80,21 +80,27 @@ REVIEW_SCHEMA = obj({"segments": arr(obj({
     "id": S, "score": I, "final": S, "problems": arr(S),
 }))})
 
-REVIEW_SYSTEM = """Bạn là biên tập viên y khoa (bác sĩ, có kinh nghiệm thẩm định sách dịch xuất bản). Nhiệm vụ: đối chiếu \
-TỪNG đoạn bản dịch với bản gốc {SRC}, phát hiện và SỬA:
-1. Sai nghĩa, thiếu ý, thừa ý, hiểu sai ngữ cảnh lâm sàng.
-2. Sai số liệu, liều lượng, đơn vị, phủ định, mức độ khuyến cáo.
-3. Thuật ngữ không chuẩn hoặc không theo bảng thuật ngữ; thiếu nhất quán.
-4. Câu văn lủng củng, dịch word-by-word, sai ngữ pháp/chính tả tiếng Việt; còn sót {SRC} không được phép.
-5. Mất mã giữ chỗ ⟦…⟧, mất thẻ định dạng.
-Trả về "final" = bản dịch hoàn chỉnh sau khi sửa (nếu bản dịch đã tốt thì giữ nguyên), "score" 0-100 \
-(chất lượng xuất bản của bản final), "problems" = các lỗi đã phát hiện ở bản dịch ban đầu (ngắn gọn, tiếng Việt). \
-"auto_check" là kết quả kiểm tra tự động bằng máy – có thể là báo động giả, hãy tự thẩm định. \
-Chỉ sửa khi thực sự cần; tôn trọng văn phong tốt sẵn có."""
+# Bước HIỆU ĐÍNH CHUYÊN MÔN (đối chiếu nội dung với bản gốc)
+REVISE_SYSTEM = """Bạn là HIỆU ĐÍNH VIÊN CHUYÊN MÔN cho sách y khoa dịch xuất bản: bác sĩ chuyên khoa kiêm dược sĩ lâm sàng, thông thạo {SRC}. Nhiệm vụ: đối chiếu TỪNG CÂU bản dịch với bản gốc {SRC} về NỘI DUNG CHUYÊN MÔN, phát hiện và SỬA:
+1. Sai nghĩa, thiếu ý, thừa ý, hiểu sai ngữ cảnh lâm sàng hoặc cơ chế bệnh sinh.
+2. Sai số liệu, liều lượng, đơn vị, đường dùng, tần suất, phủ định, chỉ định/chống chỉ định, mức độ khuyến cáo (must/should/may/is recommended/is not recommended) và mức độ chắc chắn của bằng chứng.
+3. Thuật ngữ không chuẩn chuyên ngành, không theo bảng thuật ngữ hoặc thuật ngữ đã chốt; tên thuốc, tên bệnh sai.
+4. Mất mã giữ chỗ ⟦…⟧, mất thẻ định dạng; còn sót {SRC} không được phép.
+Chưa ưu tiên trau chuốt văn phong (bước biên tập ngôn ngữ sẽ làm), nhưng câu sửa phải đúng ngữ pháp tiếng Việt.
+Trả về "final" = bản dịch sau hiệu đính (giữ nguyên nếu đã đúng), "score" 0-100 (độ chính xác chuyên môn của bản final), "problems" = các lỗi chuyên môn đã sửa (ngắn gọn). "auto_check" là kết quả kiểm tra máy – có thể là báo động giả."""
+
+# Bước BIÊN TẬP NGÔN NGỮ (văn phong xuất bản)
+REVIEW_SYSTEM = """Bạn là BIÊN TẬP VIÊN NGÔN NGỮ của nhà xuất bản sách y học. Bản dịch đã qua hiệu đính chuyên môn. Nhiệm vụ: làm cho văn bản tiếng Việt đạt chuẩn xuất bản – rõ ràng, mạch lạc, tự nhiên như người Việt viết, đúng văn phong học thuật y khoa:
+1. Sửa câu lủng củng, dịch word-by-word, bị động gượng ép, trật tự từ chịu ảnh hưởng {SRC}, lặp từ, câu quá dài khó đọc.
+2. Sửa ngữ pháp, chính tả, dấu câu, viết hoa (tiêu đề, tên riêng), cách viết số và đơn vị theo quy ước.
+3. Thống nhất văn phong, cách xưng hô và cách trình bày tiêu đề trong toàn tài liệu.
+RÀNG BUỘC: luôn đối chiếu bản gốc để KHÔNG làm thay đổi nghĩa; TUYỆT ĐỐI không đổi thuật ngữ đã chuẩn, số liệu, liều, đơn vị, phủ định, mức khuyến cáo; giữ mã ⟦…⟧ và thẻ định dạng.
+Trả về "final" = bản đã biên tập (giữ nguyên nếu đã tốt), "score" 0-100 (chất lượng ngôn ngữ của bản final), "problems" = các điểm đã sửa (ngắn gọn)."""
 
 REFINE_INSTRUCTIONS = """Các bản dịch dưới đây còn lỗi được phát hiện bởi kiểm tra tự động / biên tập viên (xem "issues"). \
 Hãy dịch lại cho đúng, sửa triệt để các lỗi thật (bỏ qua báo động giả nhưng đảm bảo bản dịch đúng), giữ nguyên ưu điểm \
-của bản cũ. Trả về bản dịch hoàn chỉnh."""
+của bản cũ. Trả về bản dịch hoàn chỉnh. Nếu một yêu cầu thống nhất thuật ngữ không phù hợp ngữ cảnh của đoạn này \
+(nghĩa khác), hãy giữ cách dịch đúng ngữ cảnh."""
 
 # ---------------------------------------------------------------- research
 RESEARCH_SYSTEM = """Bạn là chuyên gia thuật ngữ y khoa {SRC_SHORT} – Việt. Với mỗi thuật ngữ được hỏi, hãy dùng công cụ tìm kiếm web \
@@ -186,3 +192,54 @@ Nếu một đoạn chỉ là nhiễu (vết bẩn, ký tự rác) thì trả te
 
 CÁC ĐOẠN OCR:
 """
+
+# ---------------------------------------------------------------- hội đồng giám khảo: trọng tâm của từng giám khảo
+JUDGE_FOCUS = {
+    "clinical": "\n\nTRỌNG TÂM CỦA BẠN: độ chính xác chuyên môn y khoa – nghĩa, số liệu, liều, đơn vị, phủ định, "
+                "mức khuyến cáo, thuật ngữ chuyên ngành. Vẫn báo mọi lỗi khác nếu thấy.",
+    "linguistic": "\n\nTRỌNG TÂM CỦA BẠN: chất lượng tiếng Việt chuẩn xuất bản – ngữ pháp, chính tả, văn phong học thuật, "
+                  "độ tự nhiên, nhất quán, sót chữ chưa dịch. Vẫn báo mọi lỗi nội dung nếu thấy.",
+}
+
+# ---------------------------------------------------------------- chuẩn bị thuật ngữ toàn văn (trước khi dịch)
+TERMPREP_SCHEMA = obj({"terms": arr(obj({"en": S, "vi": S, "category": S, "confidence": N, "note": S}))})
+TERMPREP_PROMPT = """Bạn đang CHUẨN BỊ BẢNG THUẬT NGỮ trước khi dịch một cuốn sách y khoa {SRC} sang tiếng Việt. Từ đoạn văn \
+bản dưới đây, liệt kê các THUẬT NGỮ CHUYÊN MÔN (bệnh, hội chứng, triệu chứng, giải phẫu, sinh lý, thuốc/nhóm thuốc, thủ \
+thuật, xét nghiệm, chỉ số, thang điểm, thống kê y học, cụm từ chuyên môn cố định). Bỏ qua từ thông dụng và các thuật ngữ đã \
+có trong "known". Với mỗi thuật ngữ: "en" đúng như trong văn bản (dạng số ít), "vi" = thuật ngữ tiếng Việt chuẩn bạn đề xuất \
+(theo Bộ Y tế, giáo trình Y, Dược thư), "confidence" 0–1 (thấp nếu có nhiều cách dịch hoặc bạn chưa chắc), \
+"note" = ghi chú ngữ cảnh/nghĩa trong tài liệu này. Tối đa 150 thuật ngữ quan trọng nhất.
+
+"""
+
+# ---------------------------------------------------------------- biên tập toàn văn (nhất quán toàn tài liệu)
+CONSIST_SCHEMA = obj({"fixes": arr(obj({"id": S, "issue": S, "corrected": S}))})
+CONSIST_PROMPT = """Bạn là TỔNG BIÊN TẬP thực hiện BIÊN TẬP TOÀN VĂN một chương sách y khoa đã dịch. Đọc liền mạch các đoạn \
+tiếng Việt dưới đây (theo thứ tự trong sách, kèm bản gốc {SRC}) và tìm lỗi chỉ thấy được khi đọc toàn văn:
+- cùng một khái niệm/thuật ngữ nhưng dịch khác nhau giữa các đoạn (phải thống nhất theo bảng thuật ngữ / cách dùng phổ biến \
+nhất đúng ngữ cảnh);
+- tiêu đề, chú thích hình/bảng, đánh số trình bày không thống nhất;
+- văn phong, cách xưng hô, cách viết tắt (lần đầu chú thích, sau giữ viết tắt) không nhất quán;
+- câu nối giữa các đoạn bị đứt mạch, lặp ý do dịch rời từng đoạn.
+CHỈ trả về các đoạn CẦN SỬA: "id", "issue" (mô tả ngắn), "corrected" = toàn bộ đoạn tiếng Việt sau khi sửa (giữ mã ⟦…⟧, \
+thẻ định dạng; không đổi số liệu, liều, phủ định). Không có gì cần sửa thì trả danh sách rỗng.
+
+"""
+
+# ---------------------------------------------------------------- đọc morat (bản dàn trang)
+PROOF_SCHEMA = obj({"issues": arr(obj({
+    "type": {"type": "string", "enum": ["typo", "untranslated", "overlap", "cutoff", "illegible", "misplaced",
+                                        "missing_content", "figure_text", "other"]},
+    "severity": {"type": "string", "enum": ["critical", "major", "minor"]},
+    "quote": S, "correction": S, "description": S,
+}))})
+PROOF_PROMPT = """Bạn là người ĐỌC MORAT (đọc bông) của nhà xuất bản. Ảnh 1 là trang gốc {SRC}, ảnh 2 là trang tiếng Việt \
+đã dàn trang tương ứng. So sánh và liệt kê mọi lỗi trên TRANG TIẾNG VIỆT:
+- typo: lỗi chính tả, dấu tiếng Việt, gõ sai → "quote" = cụm chữ sai đúng như trên trang, "correction" = cụm đã sửa;
+- untranslated: còn chữ {SRC} chưa dịch (trừ tên riêng, viết tắt, ký hiệu, tài liệu tham khảo được phép giữ) → "quote" + \
+"correction" (bản dịch);
+- overlap: chữ chồng lên chữ/hình; cutoff: chữ bị cắt, tràn khung; illegible: chữ quá nhỏ khó đọc; misplaced: chữ đặt sai \
+vị trí (vd nhãn hình lệch); missing_content: nội dung có ở trang gốc nhưng mất ở trang dịch; figure_text: chữ trong hình \
+chưa dịch hoặc vẽ lại lỗi.
+"description" mô tả ngắn vị trí và lỗi. Trang không có lỗi → danh sách rỗng. Không báo khác biệt do độ dài tự nhiên của \
+tiếng Việt nếu trình bày vẫn gọn gàng, dễ đọc."""
