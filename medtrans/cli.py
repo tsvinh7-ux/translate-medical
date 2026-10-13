@@ -173,6 +173,28 @@ def cmd_local_check(cfg, args) -> None:
             print(f"[--] {name}: {url} – chưa kết nối được ({e.__class__.__name__})")
 
 
+def cmd_hw(cfg, args) -> None:
+    """Tư vấn phần cứng + đo tốc độ model local thật (nếu máy chủ local đang chạy)."""
+    from .config import DEFAULT_CONFIG
+    from .hardware import bench, detect, recommend, save_throughput
+    info = detect()
+    rec = recommend(info)
+    print(f"Hệ điều hành: {info['os']}\nCPU: {info['cpu']}\nRAM: {info['ram_gb']} GB")
+    print("GPU: " + (", ".join(f"{g['name']} ({g['vram_gb']} GB)" for g in info["gpus"]) or "không phát hiện GPU NVIDIA"))
+    print(f"\n→ Mức: {rec['tier']}\n→ Model local đề xuất: {rec['local_model']}\n→ Hồ sơ đề xuất: {rec['profile']}"
+          f"\n→ Ghi chú: {rec['note']}")
+    try:
+        b = bench(cfg)
+        print(f"\nĐo thật model local '{b['model']}': {b['tokens_per_sec']} token/giây "
+              f"({b['output_tokens']} token / {b['seconds']} s), JSON hợp lệ: {b['json_ok']}")
+        print(f"Bản dịch thử: {b['sample_translation']}")
+        if args.save:
+            save_throughput(DEFAULT_CONFIG, b["tokens_per_sec"])
+            print("Đã lưu tốc độ đo được vào config.yaml (llm.local.throughput_tokens_per_sec).")
+    except Exception as e:  # noqa: BLE001
+        print(f"\n(Chưa đo được model local: {e}. Cài Ollama và chạy: ollama pull {rec['local_model'].split()[0]})")
+
+
 def cmd_ui(cfg, args) -> None:
     from .branding import write_streamlit_theme
     write_streamlit_theme(cfg)
@@ -262,6 +284,10 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_finetune)
 
     sub.add_parser("local-check", help="Kiểm tra kết nối model local / MedCrab").set_defaults(fn=cmd_local_check)
+
+    p = sub.add_parser("hw", help="Tư vấn phần cứng & đo tốc độ model local thật trên máy")
+    p.add_argument("--save", action="store_true", help="Lưu tốc độ đo được vào config.yaml")
+    p.set_defaults(fn=cmd_hw)
 
     sub.add_parser("ui", help="Mở giao diện web trên localhost").set_defaults(fn=cmd_ui)
 

@@ -75,6 +75,8 @@ class Unit:
     status: str = ""
     mqm: list[dict] = field(default_factory=list)   # lỗi MQM còn lại sau vòng chấm cuối
     draft: str = ""                  # bản thô có sẵn (từ hồ sơ "draft") → nâng cấp thay vì dịch lại
+    uncertain: bool = False          # model dịch báo có thuật ngữ chưa chắc
+    verified: bool = False           # đã được backend leo thang (API) xác nhận
 
     @property
     def plain_src(self) -> str:
@@ -85,7 +87,8 @@ ProgressCB = Callable[[float, str], None]
 
 
 class Translator(PublishingStages):
-    def __init__(self, cfg: Config, db: Database | None = None, llm=None, progress: ProgressCB | None = None):
+    def __init__(self, cfg: Config, db: Database | None = None, llm=None, progress: ProgressCB | None = None,
+                 escalation_llm=None):
         self.cfg = cfg
         self.db = db or Database(cfg.resolve(cfg.get_path("memory.db_path", "workspace/medtrans.db")))
         self.llm = llm or make_llm(cfg.get("llm", {}))
@@ -101,6 +104,13 @@ class Translator(PublishingStages):
         self.is_draft = self.profile in ("draft", "local_fast")
         self.read_only = bool(cfg.get_path("memory.read_only", False))  # hiệu chuẩn: không đọc/ghi bộ nhớ dịch
         self.control = None  # hàm kiểm soát (tạm dừng / huỷ) do hàng đợi gắn vào
+        self.escalation_llm = None
+        esc = cfg.get("escalation") or {}
+        if esc.get("enabled"):
+            from .llm import _backend
+            self.escalation_llm = escalation_llm or _backend(esc.get("backend", "anthropic"), cfg.get("llm", {}))
+        self.esc_stats = {"escalated": 0, "audited": 0, "audit_disagree": 0, "escalated_chars": 0}
+        self._esc_lock = threading.Lock()
 
     def _checkpoint(self) -> None:
         """Điểm can thiệp: hàng đợi có thể tạm dừng hoặc huỷ công việc tại đây."""
@@ -467,7 +477,7 @@ class Translator(PublishingStages):
             return [{"en": d["en"], "vi": d["vi"]} for k, d in self.decided.items() if k in low]
 
     def _translate_call(self, batch: list[Unit], context: dict, task: str = "translate",
-                        issues: dict[str, list] | None = None) -> dict[str, dict]:
+                        issues: dict[str, list] | None = None, llm=None) -> dict[str, dict]:
         joined = " ".join(u.plain_src for u in batch)
         terms = {t["id"]: t for u in batch for t in u.terms}
         segs = []
@@ -485,7 +495,7 @@ class Translator(PublishingStages):
             "segments": segs,
         }
         instr = self._p(P.TRANSLATE_INSTRUCTIONS if task == "translate" else P.REFINE_INSTRUCTIONS)
-        res = self.llm.json_call(task=task, system=self.system_translate,
+        res = (llm or self.llm).json_call(task=task, system=self.system_translate,
                                  user=instr + "\n\n" + json.dumps(payload, ensure_ascii=False, indent=1),
                                  schema=P.TRANSLATE_SCHEMA, effort=self.cfg.get_path("llm.effort", "high"),
                                  payload=payload)
@@ -547,6 +557,7 @@ class Translator(PublishingStages):
             u.tgt = r.get("translation", "")
             for ut in r.get("uncertain_terms", []):
                 uncertain.append({**ut, "context_en": u.plain_src[:400], "segment": u.id})
+                u.uncertain = True
         missing = [u for u in batch if not u.tgt]
         if missing:  # AI bỏ sót id → dịch lại riêng
             res2 = self._translate_call(missing, context)
@@ -610,8 +621,54 @@ class Translator(PublishingStages):
         if qcfg.get("independent_eval", True):
             self._evaluate(batch, context, rounds=int(qcfg.get("eval_rounds", 2)))
 
+        # 6b. LEO THANG CÓ ĐIỀU KIỆN: đoạn không qua cổng local → backend mạnh (API) sửa & chấm lại
+        if self.escalation_llm is not None:
+            self._escalate(batch, context)
+
         # 7. chứng nhận & lưu
         self._finalize(batch)
+
+    def _needs_escalation(self, u: Unit, ecfg: dict) -> bool:
+        if has_errors(self._check(u)):
+            return True
+        if any(e.get("severity") in ("critical", "major") for e in u.mqm):
+            return True
+        if u.score and u.score < int(ecfg.get("min_score", 96)):
+            return True
+        return bool(ecfg.get("on_uncertain_terms", True) and u.uncertain)
+
+    def _escalate(self, batch: list[Unit], context: dict) -> None:
+        import random
+        ecfg = self.cfg.get("escalation", {})
+        esc = self.escalation_llm
+        need = [u for u in batch if self._needs_escalation(u, ecfg)]
+        rate = float(ecfg.get("audit_rate", 0.15))
+        rnd = random.Random(hash(batch[0].id) & 0xFFFF)
+        audit = [u for u in batch if u not in need and rnd.random() < rate]
+        rounds = int(ecfg.get("eval_rounds", 2))
+        if need:
+            issues = {u.id: [i.message for i in self._check(u) if i.severity == "error"] +
+                      [f"[{e.get('severity')}/{e.get('category')}] {e.get('explanation', '')}" for e in u.mqm
+                       if e.get("severity") in ("critical", "major")] for u in need}
+            fixed = self._translate_call(need, context, task="refine", issues=issues, llm=esc)
+            for u in need:
+                if fixed.get(u.id, {}).get("translation"):
+                    u.tgt = fixed[u.id]["translation"]
+            self._evaluate(need, context, rounds=rounds, llm=esc)
+        disagree = 0
+        if audit:  # kiểm tra mẫu: API chấm lại đoạn local cho là đạt → đo độ tin cậy giám khảo local
+            self._evaluate(audit, context, rounds=rounds, llm=esc)
+            disagree = sum(1 for u in audit if any(e.get("severity") in ("critical", "major") for e in u.mqm))
+        for u in need + audit:
+            u.verified = True
+            u.issues = u.issues + [{"severity": "info", "code": "escalation",
+                                    "message": "Leo thang lên model API để sửa & kiểm định" if u in need
+                                    else "Kiểm tra mẫu bằng model API"}]
+        with self._esc_lock:
+            self.esc_stats["escalated"] += len(need)
+            self.esc_stats["audited"] += len(audit)
+            self.esc_stats["audit_disagree"] += disagree
+            self.esc_stats["escalated_chars"] += sum(len(u.src) for u in need)
 
     def _finalize(self, batch: list[Unit]) -> None:
         """Gán trạng thái: certified (đạt chuẩn, vào TM đã duyệt) | done | needs_review; lưu kết quả."""
@@ -634,7 +691,9 @@ class Translator(PublishingStages):
             if has_errors(final_issues) or any(e.get("severity") == "critical" for e in u.mqm):
                 u.status = "needs_review"
                 u.score = min(u.score, 60)
-            elif u.score >= cert and not severe and not strict_block:
+            elif u.score >= cert and not severe and not strict_block and (
+                    self.escalation_llm is None or u.verified
+                    or not self.cfg.get_path("escalation.certify_requires_api", True)):
                 u.status = "certified"
             else:
                 u.status = "done"
@@ -656,24 +715,24 @@ class Translator(PublishingStages):
         j = self.cfg.get_path("quality.judges", ["clinical", "linguistic"])
         return list(j) if j else ["clinical"]
 
-    def _eval_call(self, batch: list[Unit], focus: str) -> dict[str, dict]:
+    def _eval_call(self, batch: list[Unit], focus: str, llm=None) -> dict[str, dict]:
         terms = {t["id"]: t for u in batch for t in u.terms}
         payload = {
             "glossary": format_terms_for_prompt(list(terms.values())),
             "decided_terms": self._decided_for(" ".join(u.plain_src for u in batch)),
             "segments": [{"id": u.id, "role": u.role, "source": u.src, "translation": u.tgt} for u in batch],
         }
-        res = self.llm.json_call(task="evaluate", system=self.system_eval[focus],
+        res = (llm or self.llm).json_call(task="evaluate", system=self.system_eval[focus],
                                  user="Đánh giá độc lập các bản dịch sau theo khung MQM:\n\n" +
                                       json.dumps(payload, ensure_ascii=False, indent=1),
                                  schema=P.EVAL_SCHEMA, effort=self.cfg.get_path("llm.review_effort", "high"),
                                  payload=payload)
         return {s["id"]: s for s in res.get("segments", [])}
 
-    def _fidelity_call(self, batch: list[Unit]) -> dict[str, dict]:
+    def _fidelity_call(self, batch: list[Unit], llm=None) -> dict[str, dict]:
         payload = {"segments": [{"id": u.id, "source_sentences": fidelity.numbered(u.src), "translation": u.tgt}
                                 for u in batch]}
-        res = self.llm.json_call(task="fidelity", system=self.system_fidelity,
+        res = (llm or self.llm).json_call(task="fidelity", system=self.system_fidelity,
                                  user="Kiểm toán độ trung thành từng câu:\n\n" +
                                       json.dumps(payload, ensure_ascii=False, indent=1),
                                  schema=P.FIDELITY_SCHEMA, effort=self.cfg.get_path("llm.review_effort", "high"),
@@ -692,16 +751,16 @@ class Translator(PublishingStages):
                     merged[key] = e
         return list(merged.values())
 
-    def _evaluate(self, batch: list[Unit], context: dict, rounds: int = 2) -> None:
+    def _evaluate(self, batch: list[Unit], context: dict, rounds: int = 2, llm=None) -> None:
         """Hội đồng giám khảo độc lập (mặc định: chuyên môn + ngôn ngữ) chấm MQM; lỗi nặng → sửa → chấm lại."""
         judges = self._judges()
         use_fid = self.cfg.get_path("quality.fidelity_audit", True)
         pending = list(batch)
         for rnd in range(max(1, rounds)):
             self._checkpoint()
-            calls = {f: (lambda f=f: self._eval_call(pending, f)) for f in judges}
+            calls = {f: (lambda f=f: self._eval_call(pending, f, llm=llm)) for f in judges}
             if use_fid:
-                calls["__fidelity__"] = lambda: self._fidelity_call(pending)
+                calls["__fidelity__"] = lambda: self._fidelity_call(pending, llm=llm)
             with ThreadPoolExecutor(max_workers=len(calls)) as ex:
                 futs = {k: ex.submit(fn) for k, fn in calls.items()}
                 results = {k: f.result() for k, f in futs.items()}
@@ -733,7 +792,7 @@ class Translator(PublishingStages):
                     else:
                         applied = True
                 if not applied:
-                    fixed = self._translate_call([u], context, task="refine", issues={u.id: [
+                    fixed = self._translate_call([u], context, task="refine", llm=llm, issues={u.id: [
                         f"[{e['severity']}/{e['category']}] {e.get('explanation', '')} → {e.get('fix', '')}"
                         for e in severe]})
                     if fixed.get(u.id, {}).get("translation"):
@@ -1101,6 +1160,11 @@ class Translator(PublishingStages):
                     stats["rejected"] += 1
         return stats
 
+    def _esc_summary(self, text_units: list[Unit]) -> dict:
+        if self.escalation_llm is None:
+            return {}
+        return _esc_rate(self.esc_stats, len(text_units))
+
     def _plain_tgt(self, u: Unit) -> str:
         return re.sub(r"</?(?:b|i|sup|sub)>", "", restore(u.tgt.replace(PARA, " "), u.mapping))
 
@@ -1115,6 +1179,7 @@ class Translator(PublishingStages):
             "scanned_pages": getattr(self, "n_scanned", 0),
             "term_enrichment": getattr(self, "enrich_stats", {}),
             "terminology_prep": getattr(self, "termprep_stats", {}),
+            "escalation": self._esc_summary(text_units),
             "consistency": getattr(self, "consistency_stats", {}),
             "proof": {"issues": len(getattr(self, "proof_log", [])),
                       "fixed_text": sum(1 for u in text_units for i in u.issues if i.get("code") == "proof"),
@@ -1137,6 +1202,14 @@ def job_id_for(pdf_hash: str, domain: str, lang: str = "en", tag: str = "") -> s
 
 def pdf_hash_of(path: str | Path) -> str:
     return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
+
+
+def _esc_rate(st: dict, total: int) -> dict:
+    out = dict(st)
+    out["escalated_percent"] = round(100 * st.get("escalated", 0) / total, 1) if total else 0
+    a = st.get("audited", 0)
+    out["local_judge_agreement_percent"] = round(100 * (1 - st.get("audit_disagree", 0) / a), 1) if a else None
+    return out
 
 
 def _fmt_dur(seconds: float) -> str:
@@ -1222,6 +1295,14 @@ def estimate_from_counts(n_pages: int, chars: int, n_scan: int, n_img: int, cfg:
             measured = vals[len(vals) // 2]
             per_k = measured
     core = k * per_k / workers
+    if get("escalation.enabled", False):  # leo thang: chỉ phần đoạn khó + kiểm tra mẫu gọi API
+        epin, epout, _ = PRICES.get(get("llm.model", "claude-opus-5-5"), PRICES["claude-opus-5-5"])
+        share = float(get("escalation.expected_share", 0.3)) + float(get("escalation.audit_rate", 0.15))
+        esc_calls = 1 + (judges + fid) * 1.4
+        cost += k * share * esc_calls * (700 * epin + 900 * epout * effort) / 1e6
+    if routes.get("proof") == "anthropic" and get("proof.enabled", True) and get("proof.vision", True):
+        epin, epout, _ = PRICES.get(get("llm.model", "claude-opus-5-5"), PRICES["claude-opus-5-5"])
+        cost += n_pages * (3500 * epin + 500 * epout) / 1e6
     if provider in ("local", "medcrab"):  # thời gian = token đầu ra / thông lượng GPU
         tps = float(get(f"llm.{provider}.throughput_tokens_per_sec", 60 if provider == "local" else 400))
         out_tokens = k * calls * 900 * (1.0 if provider == "local" else 0.7)

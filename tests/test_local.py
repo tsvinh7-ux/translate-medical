@@ -139,3 +139,61 @@ def test_finetune_export_defaults_to_human_data(tmp_path):
     assert "heart failure → suy tim" in line["messages"][1]["content"]   # kèm thuật ngữ bắt buộc
     res2 = export_jsonl(db, tmp_path / "ft2", include_machine=True)
     assert res2["by_origin"].get("machine") == 1
+
+
+# ---------------------------------------------------------------- leo thang có điều kiện (local → API)
+class WeakLocal(MockLLM):
+    """Giám khảo local báo lỗi major cho đoạn chứa 'Beta-blockers' → phải leo thang."""
+
+    def json_call(self, *, task, system, user, schema, effort="high", payload=None):
+        if task == "evaluate":
+            return {"segments": [{"id": s["id"], "corrected": "", "errors": (
+                [{"category": "terminology", "severity": "major", "source_span": "", "target_span": "",
+                  "explanation": "nghi sai", "fix": ""}] if "Beta-blockers" in s["source"] else [])}
+                for s in payload["segments"]]}
+        return super().json_call(task=task, system=system, user=user, schema=schema, effort=effort, payload=payload)
+
+
+class StrongAPI(MockLLM):
+    def __init__(self):
+        super().__init__({})
+        self.tasks: list[str] = []
+
+    def json_call(self, *, task, system, user, schema, effort="high", payload=None):
+        self.tasks.append(task)
+        if task == "refine":
+            return {"segments": [{"id": s["id"], "translation": "Không khuyến cáo dùng thuốc chẹn beta ở bệnh nhân.",
+                                  "uncertain_terms": []} for s in payload["segments"]]}
+        return super().json_call(task=task, system=system, user=user, schema=schema, effort=effort, payload=payload)
+
+
+def test_cascade_escalates_only_failing_segments(tmp_path):
+    cfg = apply_profile(load_config(overrides={"memory": {"db_path": str(tmp_path / "c.db")}}), "local_cascade")
+    cfg["escalation"]["audit_rate"] = 0.0
+    api = StrongAPI()
+    tr = Translator(cfg, llm=WeakLocal({}), escalation_llm=api)
+    res = tr.run(make(tmp_path / "c.pdf"), out_dir=tmp_path)
+    esc = res["escalation"]
+    assert esc["escalated"] >= 1 and esc["escalated"] < res["segments"]     # chỉ một phần đoạn phải gọi API
+    assert "refine" in api.tasks and "evaluate" in api.tasks
+    beta = next(u for u in tr.units if "Beta-blockers" in u.plain_src)
+    assert beta.verified and beta.tgt.startswith("Không khuyến cáo")
+    # đoạn chỉ qua cổng local (chưa API xác nhận) không được chứng nhận vào bộ nhớ dịch đạt chuẩn
+    assert all(u.status != "certified" for u in tr.units if u.kind == "text" and not u.verified)
+
+
+def test_cascade_audit_sampling_measures_local_judge(tmp_path):
+    cfg = apply_profile(load_config(overrides={"memory": {"db_path": str(tmp_path / "a.db")}}), "local_cascade")
+    cfg["escalation"]["audit_rate"] = 1.0                                     # kiểm tra mẫu toàn bộ
+    tr = Translator(cfg, llm=MockLLM({}), escalation_llm=StrongAPI())
+    res = tr.run(make(tmp_path / "a.pdf"), out_dir=tmp_path)
+    assert res["escalation"]["audited"] >= 1
+    assert res["escalation"]["local_judge_agreement_percent"] is not None
+
+
+def test_hardware_tiers():
+    from medtrans.hardware import recommend
+    r = recommend({"gpus": [{"name": "NVIDIA GeForce RTX 3050", "vram_gb": 8.0}], "ram_gb": 16})
+    assert "qwen3:8b" in r["local_model"] and r["profile"].startswith("local_cascade")
+    r4 = recommend({"gpus": [{"name": "RTX 3050 Laptop", "vram_gb": 4.0}], "ram_gb": 16})
+    assert "4b" in r4["local_model"]

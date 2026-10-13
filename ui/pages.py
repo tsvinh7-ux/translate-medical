@@ -532,6 +532,16 @@ def settings_page():
           ("Hồ sơ mặc định", _plabel(cfg, cfg.get("default_profile", "premium")))])
     if not key_ok:
         st.warning("Chưa có ANTHROPIC_API_KEY. Tạo file `.env` theo `.env.example` rồi khởi động lại.")
+    st.subheader("Phần cứng máy này & đề xuất")
+    from medtrans.hardware import detect, recommend
+    hw = detect()
+    rec = recommend(hw)
+    gpu = ", ".join(f"{g['name']} ({g['vram_gb']} GB)" for g in hw["gpus"]) or "không phát hiện GPU NVIDIA"
+    st.markdown(f"<div class='card'><b>{esc(rec['tier'])}</b><div class='muted'>GPU: {esc(gpu)} · RAM: "
+                f"{hw['ram_gb']} GB</div><div style='margin-top:6px'>Model local đề xuất: <b>{esc(rec['local_model'])}"
+                f"</b> · Hồ sơ đề xuất: <b>{esc(rec['profile'])}</b></div><div class='muted'>{esc(rec['note'])}</div>"
+                "<div class='muted'>Đo tốc độ thật: <code>python -m medtrans hw --save</code></div></div>",
+                unsafe_allow_html=True)
     st.subheader("Model chạy local")
     import httpx2
     for name, label in (("local", "Máy chủ model local (Ollama / vLLM / llama.cpp / LM Studio)"),
