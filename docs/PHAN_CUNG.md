@@ -68,15 +68,17 @@ Mọi model đều được khai báo trong `config.yaml`, nên đổi model ch�
 
 ## 4. Tốc độ dự kiến cho 1.000 trang A4 (ước tính, cần đo lại)
 
-Toàn quy trình gồm dịch, hiệu đính, biên tập, 2 giám khảo và kiểm toán. Cả cuốn cần sinh khoảng **3–5 triệu token**.
+Toàn quy trình gồm dịch, hiệu đính, biên tập, 2 giám khảo và kiểm toán. Cả cuốn cần sinh khoảng **5–15 triệu token**. Mức cao là khi bật chế độ "suy nghĩ" (thinking) của Qwen: chất lượng tốt hơn nhưng sinh nhiều token hơn.
 
-| Cấu hình | Thông lượng tham khảo (Qwen 27B Q4) | Thời gian phần local |
+| Cấu hình | Thông lượng tham khảo | Thời gian phần local |
 |---|---|---|
-| RTX 3050 8 GB (qwen3:8b, `local_cascade`) | 30–50 token/s, nhưng model nhỏ nên phải đẩy lên API nhiều | 1–2 ngày, ~25–40% đoạn đi Claude |
-| 1× RTX 3090 + Ollama | ~30–35 token/s một luồng | ~1–1,5 ngày |
-| 1× RTX 3090 + vLLM, theo lô | ~100–150 token/s tổng | ~6–12 giờ |
-| 2× RTX 3090 + vLLM | ~200–300 token/s tổng | ~3–6 giờ |
-| RTX PRO 6000 96 GB + vLLM | ~400+ token/s tổng | ~2–3 giờ |
+| RTX 3050 8 GB (qwen3:8b, `local_cascade`) | ~40–50 token/s | ~1,5–4 ngày, kèm ~25–40% đoạn đẩy lên Claude |
+| 1× RTX 3090 + Ollama (Qwen 27B Q4) | ~30–35 token/s một luồng | ~2–5 ngày |
+| 1× RTX 3090 + vLLM, theo lô | ~100–150 token/s tổng | ~12–35 giờ |
+| 2× RTX 3090 + vLLM | ~200–300 token/s tổng | ~6–17 giờ |
+| RTX PRO 6000 96 GB + vLLM | ~400+ token/s tổng | ~4–10 giờ |
+
+So sánh: hồ sơ `premium` (toàn bộ bằng Claude) mất ~3–7 giờ với 32 luồng API, chi phí ~464–994 USD. Hồ sơ `local_pro` dự báo chỉ ~74–158 USD tiền API (phần đẩy lên Claude và đọc morat).
 
 Phần đẩy lên Claude (tra web, đoạn khó, kiểm tra mẫu, đọc morat) chạy **song song**. Sau khi có máy, chạy `python -m medtrans hw --save`: công cụ đo tốc độ thật và cập nhật dự báo trong màn Ước tính.
 
