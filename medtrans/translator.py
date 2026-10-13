@@ -98,7 +98,7 @@ class Translator(PublishingStages):
         self._decided_lock = threading.Lock()
         self._research_lock = threading.Lock()
         self.profile = cfg.get("active_profile") or cfg.get("default_profile", "premium")
-        self.is_draft = self.profile == "draft"
+        self.is_draft = self.profile in ("draft", "local_fast")
         self.read_only = bool(cfg.get_path("memory.read_only", False))  # hiệu chuẩn: không đọc/ghi bộ nhớ dịch
         self.control = None  # hàm kiểm soát (tạm dừng / huỷ) do hàng đợi gắn vào
 
@@ -364,10 +364,15 @@ class Translator(PublishingStages):
                     break
             headings = [b.plain for p in pages for b in p.blocks if b.role == "heading"][:300]
             text = "\n".join(sample) + "\n\n### CÁC TIÊU ĐỀ TRONG TÀI LIỆU:\n" + "\n".join(headings)
-            brief = self.llm.json_call(task="brief", system=cached_system(self._p(P.TRANSLATOR_SYSTEM)),
-                                       user=self._p(P.BRIEF_PROMPT) + text, schema=P.BRIEF_SCHEMA,
-                                       effort=self.cfg.get_path("llm.effort", "high"), payload={})
-            self.db.job_upsert(self.job_id, brief_json=brief)
+            try:
+                brief = self.llm.json_call(task="brief", system=cached_system(self._p(P.TRANSLATOR_SYSTEM)),
+                                           user=self._p(P.BRIEF_PROMPT) + text, schema=P.BRIEF_SCHEMA,
+                                           effort=self.cfg.get_path("llm.effort", "high"), payload={})
+                self.db.job_upsert(self.job_id, brief_json=brief)
+            except LLMError as e:  # model chỉ dịch (MedCrab) → không có tổng quan, vẫn dịch tiếp
+                log.warning("Bỏ qua bước đọc tổng quan: %s", e)
+                brief = {"title": "", "specialty": "", "audience": "", "summary": "", "style_guide": "",
+                         "key_terms": []}
         # thuật ngữ then chốt do AI đề xuất → làm thuật ngữ đã chốt (trừ khi mâu thuẫn bảng thuật ngữ đã duyệt)
         for kt in brief.get("key_terms", []):
             if not kt.get("en") or not kt.get("vi"):
@@ -1190,8 +1195,14 @@ def estimate_from_counts(n_pages: int, chars: int, n_scan: int, n_img: int, cfg:
     reeval = 1 + 0.4 * (rounds > 1)
 
     calls = 1 + revise + edit + (judges + fid) * reeval + 0.3
+    provider = get("llm.provider", "anthropic")
+    routes = get("llm.routes", {}) or {}
+    local_translate = provider in ("local", "medcrab") or routes.get("translate") in ("local", "medcrab")
     pin, pout, _ = PRICES.get(model, PRICES["claude-opus-5-5"])
-    cost = k * calls * (700 * pin + 900 * pout * effort) / 1e6
+    if provider in ("local", "medcrab"):
+        pin = pout = 0.0  # chạy local: không tốn phí API (chỉ điện năng, khấu hao GPU)
+    api_calls = calls - (1 if local_translate and provider == "anthropic" else 0)
+    cost = k * api_calls * (700 * pin + 900 * pout * effort) / 1e6
     cost += k * (300 * pin + 150 * pout) / 1e6 * (termprep + consist)
     if proof_on:
         cost += n_pages * (3500 * pin + 500 * pout * effort) / 1e6
@@ -1211,6 +1222,13 @@ def estimate_from_counts(n_pages: int, chars: int, n_scan: int, n_img: int, cfg:
             measured = vals[len(vals) // 2]
             per_k = measured
     core = k * per_k / workers
+    if provider in ("local", "medcrab"):  # thời gian = token đầu ra / thông lượng GPU
+        tps = float(get(f"llm.{provider}.throughput_tokens_per_sec", 60 if provider == "local" else 400))
+        out_tokens = k * calls * 900 * (1.0 if provider == "local" else 0.7)
+        core = out_tokens / max(1.0, tps)
+    elif local_translate:  # lai: dịch nháp local chạy song song với kiểm định API
+        tps = float(get(f"llm.{routes.get('translate')}.throughput_tokens_per_sec", 60))
+        core = max(core * (calls - 1) / calls, k * 700 / max(1.0, tps))
     extra = k * (st["termprep"] * termprep + st["consistency"] * consist) * effort * speed / workers
     proof_t = n_pages * PROOF_SECONDS_PER_PAGE * effort * speed / workers if proof_on else 0
     import os as _os

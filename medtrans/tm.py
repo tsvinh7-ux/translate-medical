@@ -51,7 +51,7 @@ def import_tmx(db: Database, path: str | Path, domain: str = "general_medicine",
                 segs[lang] = "".join(seg.itertext()).strip()
         if segs.get(src_lang) and segs.get("vi"):
             db.tm_add(segs[src_lang], segs["vi"], domain, doc_name=Path(path).name, quality=quality,
-                      approved=approved, src_lang=src_lang)
+                      approved=approved, src_lang=src_lang, origin="import")
             n += 1
     return n
 
@@ -66,6 +66,7 @@ def import_bilingual_table(db: Database, path: str | Path, domain: str = "genera
         en = r.get(src_lang) or r.get("en") or r.get("english") or r.get("source") or r.get("src")
         vi = r.get("vi") or r.get("vietnamese") or r.get("target")
         if en and vi:
-            db.tm_add(en, vi, domain, doc_name=Path(path).name, quality=quality, approved=True, src_lang=src_lang)
+            db.tm_add(en, vi, domain, doc_name=Path(path).name, quality=quality, approved=True, src_lang=src_lang,
+                      origin="import")
             n += 1
     return n

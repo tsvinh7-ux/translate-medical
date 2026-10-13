@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS tm (
     quality INTEGER DEFAULT 0,         -- điểm MQM 0-100 do giám khảo độc lập chấm
     approved INTEGER DEFAULT 0,        -- 1 = đạt chuẩn chứng nhận (tự động) hoặc người duyệt xác nhận
     src_lang TEXT DEFAULT 'en',
+    origin TEXT DEFAULT 'machine',     -- machine (AI chứng nhận) | human (người sửa/duyệt) | import (bản dịch có sẵn)
     created_at REAL,
     UNIQUE(src_hash, domain, src_lang)
 );
@@ -191,6 +192,8 @@ class Database:
             """)
 
     def _finish_migration(self) -> None:
+        if "origin" not in self._columns("tm"):
+            self.conn.execute("ALTER TABLE tm ADD COLUMN origin TEXT DEFAULT 'machine'")
         if not getattr(self, "_legacy", False):
             return
         g = ["en", "en_norm", "vi", "domain", "category", "note", "keep_original", "gloss_first", "case_sensitive",
@@ -296,7 +299,7 @@ class Database:
 
     # ------------------------------------------------------------ TM
     def tm_add(self, src: str, tgt: str, domain: str, *, doc_name: str = "", role: str = "body",
-               quality: int = 0, approved: bool = False, src_lang: str = "en") -> None:
+               quality: int = 0, approved: bool = False, src_lang: str = "en", origin: str = "machine") -> None:
         h = text_hash(src)
         now = time.time()
         existing = self.query("SELECT id, quality, approved FROM tm WHERE src_hash=? AND domain=? AND src_lang=?",
@@ -308,13 +311,14 @@ class Database:
                 return
             if not approved and row["quality"] > quality:
                 return
-            self.execute("UPDATE tm SET tgt=?, quality=?, approved=?, doc_name=?, role=? WHERE id=?",
-                         (tgt, quality, int(approved), doc_name, role, row["id"]))
+            self.execute("UPDATE tm SET tgt=?, quality=?, approved=?, doc_name=?, role=?, origin=? WHERE id=?",
+                         (tgt, quality, int(approved), doc_name, role, origin, row["id"]))
         else:
             self.execute(
                 """INSERT INTO tm (src, src_norm, src_hash, tgt, domain, doc_name, role, quality, approved, src_lang,
-                   created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                (src, normalize_text(src), h, tgt, domain, doc_name, role, quality, int(approved), src_lang, now))
+                   origin, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (src, normalize_text(src), h, tgt, domain, doc_name, role, quality, int(approved), src_lang,
+                 origin, now))
 
     def tm_exact(self, src: str, domains: Iterable[str], src_lang: str = "en") -> dict | None:
         d = list(domains)

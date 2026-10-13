@@ -115,7 +115,9 @@ def new_project():
     default = names.index(cfg.get("default_profile", "premium")) if cfg.get("default_profile") in names else 0
     choice = st.radio("Chọn hồ sơ", names, index=default, horizontal=True, format_func=lambda n: _plabel(cfg, n),
                       label_visibility="collapsed")
-    cols = st.columns(len(names))
+    cols = []
+    for i in range(0, len(names), 4):
+        cols.extend(st.columns(4))
     for col, name in zip(cols, names):
         prof = cfg["profiles"][name]
         pc = apply_profile(cfg, name)
@@ -385,7 +387,7 @@ def review_page():
                                 src=s["src"], tgt=new, status="certified", score=100,
                                 issues=[{"severity": "info", "code": "human", "message": "Đã duyệt tay"}])
                 db.tm_add(s["src"], new, j["domain"], doc_name=j["job_id"], role=s["role"], quality=100,
-                          approved=True)
+                          approved=True, origin="human")
                 st.toast("Đã lưu vào bộ nhớ dịch (đã duyệt).")
     if st.button("🔁 Dựng lại PDF từ dữ liệu hiện tại", type="primary"):
         qid = state.queue().submit(j["pdf_path"], j["domain"], cfg.get("default_profile", "premium"))
@@ -407,8 +409,13 @@ def calibration_page():
         f = c1.selectbox("Tài liệu mẫu", files, format_func=lambda p: p.name)
         pr = c2.text_input("Trang mẫu", "1-10")
         domain = c3.text_input("Chuyên ngành", cfg.get_path("translation.domain"), key="cal_dom")
-        profs = st.multiselect("Hồ sơ cần so sánh", _profiles(cfg), default=[p for p in _profiles(cfg) if p != "draft"],
+        profs = st.multiselect("Hồ sơ cần so sánh", _profiles(cfg),
+                               default=[p for p in ("economy", "balanced", "premium") if p in _profiles(cfg)],
                                format_func=lambda n: _plabel(cfg, n))
+        ref = st.selectbox("Giám khảo tham chiếu (chấm tất cả hồ sơ cùng một thước đo)",
+                           [p for p in ("premium", "local_quality") if p in _profiles(cfg)],
+                           format_func=lambda n: _plabel(cfg, n),
+                           help="Chọn 'Local – chất lượng cao' để hiệu chuẩn hoàn toàn offline")
         st.caption("Gợi ý: 10–20 trang đại diện (chữ, bảng, hình). Chi phí hiệu chuẩn ≈ tổng chi phí các hồ sơ trên "
                    "số trang mẫu + 1 lượt giám khảo tham chiếu mỗi hồ sơ.")
         if st.button("▶ Chạy hiệu chuẩn", type="primary", disabled=not profs):
@@ -417,7 +424,7 @@ def calibration_page():
             bar = st.progress(0.0)
             with st.spinner("Đang hiệu chuẩn..."):
                 res = calibrate(f, cfg, db, profs, page_range=(int(a), int(b or a)), domain=domain,
-                                progress=lambda x, m: bar.progress(min(1.0, x), m))
+                                progress=lambda x, m: bar.progress(min(1.0, x), m), ref_profile=ref)
             st.success("Hoàn tất hiệu chuẩn.")
     rows = db.query("SELECT * FROM calibration ORDER BY created_at DESC LIMIT 50")
     if rows:
@@ -525,6 +532,19 @@ def settings_page():
           ("Hồ sơ mặc định", _plabel(cfg, cfg.get("default_profile", "premium")))])
     if not key_ok:
         st.warning("Chưa có ANTHROPIC_API_KEY. Tạo file `.env` theo `.env.example` rồi khởi động lại.")
+    st.subheader("Model chạy local")
+    import httpx2
+    for name, label in (("local", "Máy chủ model local (Ollama / vLLM / llama.cpp / LM Studio)"),
+                        ("medcrab", "MedCrab-1.5B (dịch nháp)")):
+        c = cfg.get_path(f"llm.{name}", {}) or {}
+        url = (c.get("base_url") or "").rstrip("/")
+        try:
+            r = httpx2.get(f"{url}/models", timeout=2, trust_env=False)
+            ms = ", ".join(m.get("id", "") for m in r.json().get("data", [])) or "—"
+            st.markdown(f"{pill('done')} **{label}** · `{url}` · model: {esc(ms)}", unsafe_allow_html=True)
+        except Exception:  # noqa: BLE001
+            st.markdown(f"{pill('cancelled')} **{label}** · `{url}` – chưa chạy (xem docs/CHAY_LOCAL.md)",
+                        unsafe_allow_html=True)
     st.subheader("Quy ước văn phong theo chuyên ngành")
     dn = st.text_input("Chuyên ngành", cfg.get_path("translation.domain"), key="dn_dom")
     notes = st.text_area("Quy ước", db.domain_notes(dn), height=160)

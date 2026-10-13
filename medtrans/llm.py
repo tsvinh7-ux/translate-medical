@@ -52,6 +52,8 @@ class Usage:
                 self.web_searches += getattr(stu, "web_search_requests", 0) or 0
 
     def cost(self, model: str) -> float:
+        if model not in PRICES and not str(model).startswith("claude-"):
+            return 0.0  # model chạy local – không tốn phí API
         pin, pout, pcache = PRICES.get(model, PRICES["claude-opus-5-5"])
         return round((self.input_tokens * pin + self.output_tokens * pout + self.cache_read * pcache
                       + self.cache_write * pin * 2) / 1e6 + self.web_searches * 0.01, 4)
@@ -240,8 +242,27 @@ def _mock_vi(text: str) -> str:
     return "[VI] " + re.sub(r"\s{2,}", " ", out).strip()
 
 
-def make_llm(cfg: dict):
-    provider = cfg.get("provider", "anthropic")
-    if provider == "mock":
+def _backend(name: str, cfg: dict):
+    if name == "mock":
         return MockLLM(cfg)
-    return ClaudeLLM(cfg)
+    if name == "anthropic":
+        return ClaudeLLM(cfg)
+    from .llm_local import MedCrabLLM, OpenAICompatLLM
+    if name == "local":
+        return OpenAICompatLLM(cfg.get("local", {}))
+    if name == "medcrab":
+        return MedCrabLLM(cfg.get("medcrab", {}))
+    raise ValueError(f"Không biết nhà cung cấp model '{name}' (anthropic | local | medcrab | mock)")
+
+
+def make_llm(cfg: dict):
+    """provider: anthropic | local | mock. routes: định tuyến công đoạn → backend (vd translate: medcrab)."""
+    provider = cfg.get("provider", "anthropic")
+    routes = {k: v for k, v in (cfg.get("routes") or {}).items() if v and v != provider}
+    if provider == "mock":  # chế độ thử: mọi công đoạn giả lập
+        return MockLLM(cfg)
+    if not routes:
+        return _backend(provider, cfg)
+    from .llm_local import RoutedLLM
+    names = {provider, *routes.values()}
+    return RoutedLLM({n: _backend(n, cfg) for n in names}, routes, provider)

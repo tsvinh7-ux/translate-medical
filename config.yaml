@@ -3,7 +3,7 @@
 # ============================================================
 
 llm:
-  provider: anthropic          # anthropic | mock (mock = chạy thử không tốn token)
+  provider: anthropic          # anthropic (API Claude) | local (model chạy trên máy) | medcrab | mock (chạy thử)
   model: claude-opus-5-5       # model mạnh nhất cho chất lượng cao
   effort: xhigh                # low | medium | high | xhigh | max  (chế độ khắt khe: xhigh; tối đa: max)
   review_effort: xhigh         # mức suy luận cho hiệu đính / biên tập / giám khảo
@@ -11,6 +11,24 @@ llm:
   use_fallbacks: true          # tự chuyển model dự phòng nếu bị từ chối
   max_retries: 4
   timeout_seconds: 900
+  routes: {}                   # định tuyến công đoạn → backend, vd {translate: medcrab} hoặc {translate: local}
+                               # công đoạn: brief, termprep, translate, refine, revise, review, evaluate, fidelity,
+                               # consistency, research, proof, ocr_fix, extract_terms, validate_terms
+  local:                       # MODEL LOCAL qua API chuẩn OpenAI: Ollama / llama.cpp / vLLM / LM Studio
+    base_url: http://localhost:11434/v1     # Ollama mặc định; vLLM: http://localhost:8000/v1
+    model: qwen3:32b                        # model đủ mạnh cho hiệu đính/giám khảo (khuyến nghị ≥ 32B)
+    json_mode: json_schema                  # json_schema (vLLM, llama.cpp, LM Studio, Ollama mới) | ollama | json_object
+    vision_model: ""                        # vd qwen2.5vl:32b – để đọc morat bằng hình ảnh khi chạy local
+    temperature: 0.1
+    max_tokens: 16000
+    timeout_seconds: 1800
+    throughput_tokens_per_sec: 60           # tốc độ sinh tổng (dùng để dự báo thời gian) – đo lại trên máy bạn
+  medcrab:                     # MedCrab-1.5B (Qwen2.5-1.5B tinh chỉnh Anh→Việt y khoa) – CHỈ làm bước dịch
+    engine: completions                     # completions (vLLM/llama.cpp phục vụ model) | transformers (nạp trực tiếp)
+    base_url: http://localhost:8001/v1
+    model: pnnbao-ump/MedCrab-1.5B
+    throughput_tokens_per_sec: 400
+    # GIẤY PHÉP: CC BY-NC 4.0 – dùng cho mục đích thương mại phải có sự cho phép của tác giả
 
 translation:
   source_lang: en              # ngôn ngữ nguồn (hiện hoàn thiện: en). Đích luôn là tiếng Việt
@@ -137,6 +155,33 @@ profiles:
     description: "Opus, hiệu đính + biên tập, 1 giám khảo, kiểm toán trung thành, đọc morat bằng hình ảnh 1 vòng."
     llm: {model: claude-opus-5-5, effort: high, review_effort: high}
     translation: {workers: 8}
+    quality: {judges: [clinical], eval_rounds: 2, certify_score: 96}
+    proof: {enabled: true, vision: true, rounds: 1}
+  local_fast:
+    label: "Local – bản thô MedCrab"
+    description: "Chạy hoàn toàn trên máy bằng MedCrab-1.5B: rất nhanh, không tốn phí API, không cần Internet. Chỉ là bản nháp (không hiệu đính/giám khảo). Lưu ý giấy phép phi thương mại."
+    llm: {provider: medcrab}
+    translation: {workers: 8, web_research: false, max_refine_rounds: 0}
+    terminology: {prepass: false}
+    workflow: {revise: false, edit: false, consistency: false}
+    quality: {independent_eval: false, fidelity_audit: false, strict_certify: false}
+    proof: {enabled: true, vision: false}
+    memory: {auto_enrich: false}
+    scan: {ocr_correct: false}
+  local_quality:
+    label: "Local – chất lượng cao"
+    description: "Toàn bộ quy trình (thuật ngữ, dịch, hiệu đính, biên tập, giám khảo MQM, kiểm toán trung thành) chạy bằng model local mạnh (Qwen3-32B…) trên GPU của bạn. Không tra web; nên khoá termbase trước."
+    llm: {provider: local}
+    translation: {workers: 4, web_research: false}
+    terminology: {require_lock: true}
+    quality: {judges: [clinical], eval_rounds: 2, certify_score: 96}
+    proof: {enabled: true, vision: false}
+    scan: {ocr_correct: false}
+  hybrid:
+    label: "Lai – dịch local, kiểm định bằng Claude"
+    description: "Model local dịch nháp (tiết kiệm token đầu ra), Claude Opus hiệu đính, biên tập, chấm MQM và kiểm toán trung thành – giữ cổng chất lượng của API."
+    llm: {provider: anthropic, model: claude-opus-5-5, effort: high, review_effort: high, routes: {translate: local}}
+    translation: {workers: 6}
     quality: {judges: [clinical], eval_rounds: 2, certify_score: 96}
     proof: {enabled: true, vision: true, rounds: 1}
   premium:

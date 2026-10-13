@@ -143,10 +143,34 @@ def cmd_calibrate(cfg, args) -> None:
     from .calibrate import calibrate
     a, _, b = args.pages.partition("-")
     rows = calibrate(args.pdf, cfg, _db(cfg), args.profiles.split(","), page_range=(int(a), int(b or a)),
-                     domain=args.domain, progress=lambda f, m: print(f"[{int(f * 100):3d}%] {m}"))
+                     domain=args.domain, progress=lambda f, m: print(f"[{int(f * 100):3d}%] {m}"),
+                     ref_profile=args.judge)
     for r in rows:
         print(f"{r['profile']:<10} MQM {r['avg_mqm']:>5} · đạt chuẩn {r['pass_rate']}% (KTC95 {r['ci_low']}–"
               f"{r['ci_high']}%) · ${r['cost_per_a4']}/A4 · {r['sec_per_a4']} s/A4")
+
+
+def cmd_finetune(cfg, args) -> None:
+    from .finetune import export_jsonl
+    if args.include_machine:
+        print("CẢNH BÁO: đưa bản dịch do Claude chứng nhận vào dữ liệu huấn luyện – chỉ làm khi đã được pháp chế/"
+              "Anthropic xác nhận phù hợp điều khoản (Commercial Terms, mục D.4).")
+    print(json.dumps(export_jsonl(_db(cfg), args.out, domain=args.domain, include_machine=args.include_machine,
+                                  min_quality=args.min_quality), ensure_ascii=False, indent=2))
+
+
+def cmd_local_check(cfg, args) -> None:
+    """Kiểm tra kết nối máy chủ model local & MedCrab."""
+    import httpx2
+    for name in ("local", "medcrab"):
+        c = cfg.get_path(f"llm.{name}", {}) or {}
+        url = (c.get("base_url") or "").rstrip("/")
+        try:
+            r = httpx2.get(f"{url}/models", timeout=5, trust_env=False)
+            models = [m.get("id") for m in r.json().get("data", [])]
+            print(f"[OK] {name}: {url} – model sẵn có: {models}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[--] {name}: {url} – chưa kết nối được ({e.__class__.__name__})")
 
 
 def cmd_ui(cfg, args) -> None:
@@ -225,8 +249,19 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("pdf")
     p.add_argument("--pages", default="1-10")
     p.add_argument("--profiles", default="economy,balanced,premium")
+    p.add_argument("--judge", default="premium", help="Hồ sơ của giám khảo tham chiếu (premium | local_quality)")
     p.add_argument("--domain")
     p.set_defaults(fn=cmd_calibrate)
+
+    p = sub.add_parser("finetune", help="Xuất dữ liệu JSONL để tinh chỉnh model local (LoRA)")
+    p.add_argument("--out", default="workspace/finetune")
+    p.add_argument("--domain")
+    p.add_argument("--min-quality", type=int, default=95)
+    p.add_argument("--include-machine", action="store_true",
+                   help="Gồm cả bản dịch AI chứng nhận (cần xác nhận pháp lý trước)")
+    p.set_defaults(fn=cmd_finetune)
+
+    sub.add_parser("local-check", help="Kiểm tra kết nối model local / MedCrab").set_defaults(fn=cmd_local_check)
 
     sub.add_parser("ui", help="Mở giao diện web trên localhost").set_defaults(fn=cmd_ui)
 

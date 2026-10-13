@@ -30,13 +30,13 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
 
 def calibrate(pdf_path: str | Path, cfg: Config, db: Database, profiles: list[str],
               page_range: tuple[int, int] = (1, 10), domain: str | None = None, progress=None,
-              llm_factory=None) -> list[dict]:
+              llm_factory=None, ref_profile: str = "premium") -> list[dict]:
     from .translator import Translator
     llm_factory = llm_factory or (lambda c: make_llm(c.get("llm", {})))
     domain = domain or cfg.get_path("translation.domain", "general_medicine")
     out_dir = cfg.resolve("workspace/calibration")
     out_dir.mkdir(parents=True, exist_ok=True)
-    ref_cfg = apply_profile(cfg, "premium")
+    ref_cfg = apply_profile(cfg, ref_profile)
     certify = int(ref_cfg.get_path("quality.certify_score", 97))
     results = []
     for i, name in enumerate(profiles):
@@ -57,6 +57,7 @@ def calibrate(pdf_path: str | Path, cfg: Config, db: Database, profiles: list[st
         rc = copy.deepcopy(ref_cfg)
         rc["job_tag"] = f"calib_{name}"
         rc["memory"]["read_only"] = True
+        rc["quality"]["independent_eval"] = True
         ref = Translator(rc, db=db, llm=llm_factory(rc), progress=say)
         ref.domain, ref.domains, ref.job_id = tr.domain, tr.domains, tr.job_id
         ref.matcher = tr.matcher
