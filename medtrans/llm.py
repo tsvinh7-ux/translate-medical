@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import logging
 import re
 import threading
@@ -243,6 +244,7 @@ def _mock_vi(text: str) -> str:
 
 
 def _backend(name: str, cfg: dict):
+    name = os.environ.get("MEDTRANS_PROVIDER") or name  # chế độ trình diễn/kiểm thử: mọi backend → giả lập
     if name == "mock":
         return MockLLM(cfg)
     if name == "anthropic":
@@ -258,6 +260,8 @@ def _backend(name: str, cfg: dict):
 def make_llm(cfg: dict):
     """provider: anthropic | local | mock. routes: định tuyến công đoạn → backend (vd translate: medcrab)."""
     provider = cfg.get("provider", "anthropic")
+    if os.environ.get("MEDTRANS_PROVIDER"):  # chế độ trình diễn: kể cả hồ sơ local/định tuyến đều giả lập
+        return _backend(provider, cfg)
     routes = {k: v for k, v in (cfg.get("routes") or {}).items() if v and v != provider}
     if provider == "mock":  # chế độ thử: mọi công đoạn giả lập
         return MockLLM(cfg)

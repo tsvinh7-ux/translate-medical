@@ -49,7 +49,7 @@ h3 {{ font-weight:700; font-size:1.05rem; }}
 .sb-brand .t {{ font-size:.8rem; color:var(--muted); }}
 .page-head {{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:6px; }}
 .page-head .sub {{ color:var(--muted); font-size:.92rem; margin-top:-6px; }}
-.kpis {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:12px; margin:8px 0 18px; }}
+.kpis {{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin:8px 0 18px; }}
 .kpi {{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px;
   box-shadow:0 1px 2px rgba(16,24,40,.04); }}
 .kpi .l {{ font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; }}
@@ -92,6 +92,79 @@ div[data-testid="stProgress"] > div > div > div > div {{ background-color:var(--
 .stButton > button[kind="primary"] {{ background:var(--p); border-color:var(--p); font-weight:600; }}
 .stButton > button {{ border-radius:10px; }}
 [data-testid="stExpander"] {{ border-radius:12px; border:1px solid var(--line); }}
+/* ---------- Dự án mới: wizard 4 bước ---------- */
+.stepper {{ display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin:6px 0 8px; }}
+.stepper .s {{ display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:12px; background:#fff;
+  border:1px solid var(--line); font-size:.86rem; color:var(--muted); font-weight:600; }}
+.stepper .s .n {{ width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  background:var(--neutral-bg); color:var(--neutral); font-weight:800; font-size:.8rem; flex:none; }}
+.stepper .s.done {{ color:var(--ink); }} .stepper .s.done .n {{ background:var(--good-bg); color:var(--good); }}
+.stepper .s.now {{ border-color:var(--p); color:var(--ink); box-shadow:0 0 0 3px var(--p-soft); }}
+.stepper .s.now .n {{ background:var(--p); color:#fff; }}
+.step {{ display:flex; align-items:center; gap:12px; margin:26px 0 12px; }}
+.step .num {{ width:34px; height:34px; border-radius:10px; background:var(--p); color:#fff; font-weight:800;
+  display:flex; align-items:center; justify-content:center; flex:none; }}
+.step .st {{ font-weight:800; font-size:1.14rem; color:var(--ink); line-height:1.2; }}
+.step .ss {{ color:var(--muted); font-size:.86rem; }}
+.eng {{ border:1px solid var(--line); border-radius:16px; padding:18px 20px; background:#fff; position:relative;
+  box-shadow:0 1px 2px rgba(16,24,40,.04); }}
+.eng.sel {{ border:2px solid var(--p); box-shadow:0 0 0 4px var(--p-soft), 0 10px 26px rgba(16,24,40,.08); }}
+.eng .hd {{ display:flex; align-items:center; gap:14px; padding-right:96px; }}
+.eng .ic {{ font-size:1.5rem; width:48px; height:48px; border-radius:12px; background:var(--p-soft);
+  display:flex; align-items:center; justify-content:center; flex:none; }}
+.eng .t {{ font-weight:800; font-size:1.16rem; color:var(--ink); }} .eng .tg {{ color:var(--muted); font-size:.85rem; }}
+.eng .flag {{ position:absolute; top:16px; right:16px; }}
+.eng .roles {{ margin:14px 0 6px; display:grid; grid-template-columns:1fr auto; gap:7px 14px; font-size:.84rem; }}
+.eng .roles span {{ color:var(--ink-2); }} .eng .roles b {{ text-align:right; font-weight:600; color:var(--ink); }}
+.eng .stt {{ border-top:1px dashed var(--line); padding-top:10px; margin-top:10px; font-size:.82rem;
+  display:flex; flex-direction:column; gap:6px; }}
+.eng .stt div {{ display:flex; justify-content:space-between; align-items:center; gap:10px; }}
+.eng .stt span {{ color:var(--muted); }}
+.eng .pc {{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; font-size:.79rem; }}
+.eng .pc div {{ border-radius:10px; padding:7px 10px; }}
+.eng .pc .pro {{ background:var(--good-bg); color:var(--good); }} .eng .pc .con {{ background:var(--warn-bg); color:var(--warn); }}
+.scope {{ border:1px solid var(--line); border-radius:14px; padding:14px 14px 12px; background:#fff;
+  display:flex; flex-direction:column; gap:9px; box-shadow:0 1px 2px rgba(16,24,40,.04); }}
+.scope.sel {{ border:2px solid var(--p); box-shadow:0 0 0 3px var(--p-soft), 0 8px 20px rgba(16,24,40,.07); }}
+.scope .lvl {{ display:flex; justify-content:space-between; align-items:center; font-size:.68rem; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--muted); font-weight:700; }}
+.scope .t {{ font-weight:800; font-size:1rem; line-height:1.25; min-height:2.5em; color:var(--ink); }}
+.scope .d {{ color:var(--muted); font-size:.79rem; min-height:128px; }}
+.scope .chk {{ display:flex; flex-direction:column; gap:2px; font-size:.8rem; }}
+.scope .chk .on {{ color:var(--good); font-weight:600; }} .scope .chk .off {{ color:#b8bec7; }}
+.scope .est {{ display:flex; flex-direction:column; gap:4px; background:var(--neutral-bg); border-radius:10px;
+  padding:8px 10px; }}
+.scope .est div {{ display:flex; justify-content:space-between; align-items:baseline; gap:6px; }}
+.scope .est span {{ font-size:.64rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); white-space:nowrap; }}
+.scope .est b {{ font-size:.86rem; font-variant-numeric:tabular-nums; color:var(--ink); white-space:nowrap; }}
+.scope .dl {{ font-size:.76rem; color:var(--ink-2); min-height:2.3em; }}
+.mx {{ width:100%; border-collapse:collapse; font-size:.86rem; }}
+.mx tr, .mx td, .mx th {{ border:none !important; }}
+.mx th {{ font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600;
+  padding:6px 10px; text-align:left; border-bottom:1px solid var(--line) !important; }}
+.mx th.g {{ text-align:center; color:var(--ink); font-size:.74rem; border-bottom:2px solid var(--p) !important; }}
+.mx td {{ padding:9px 10px; border-bottom:1px solid #f0f1f3 !important; }}
+.mx td:first-child {{ white-space:nowrap; }}
+.mx td.c, .mx th.c {{ text-align:center; }} .mx td.n {{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }}
+.mx .on {{ color:var(--good); font-weight:800; }} .mx .off {{ color:#c4c9d0; }}
+.mx tr.sel td {{ background:var(--p-soft); }} .mx td.hl {{ color:var(--p); font-weight:800; }}
+.flow .r {{ display:grid; grid-template-columns:28px 1fr auto; align-items:center; gap:10px; padding:8px 2px;
+  border-bottom:1px solid #f0f1f3; font-size:.88rem; color:var(--ink); }}
+.flow .r:last-child {{ border-bottom:none; }}
+.flow .i {{ width:24px; height:24px; border-radius:50%; background:var(--p-soft); color:var(--p); font-weight:800;
+  font-size:.74rem; display:flex; align-items:center; justify-content:center; }}
+.who {{ font-size:.74rem; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; }}
+.who.local {{ color:var(--good); background:var(--good-bg); }} .who.api {{ color:var(--info); background:var(--info-bg); }}
+.who.machine {{ color:var(--neutral); background:var(--neutral-bg); }} .who.human {{ color:var(--accent); background:var(--accent-bg); }}
+.sum {{ background:linear-gradient(160deg, var(--p) 0%, color-mix(in srgb, var(--p) 62%, #000) 100%); color:#fff;
+  border-radius:18px; padding:22px 24px; box-shadow:0 12px 32px rgba(16,24,40,.18); }}
+.sum .hd {{ font-weight:800; font-size:1.06rem; padding-bottom:12px; margin-bottom:14px;
+  border-bottom:1px solid rgba(255,255,255,.22); }}
+.sum .hd small {{ display:block; font-weight:500; opacity:.8; font-size:.8rem; margin-top:2px; }}
+.sum .k {{ font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; opacity:.78; font-weight:600; }}
+.sum .v {{ font-size:1.75rem; font-weight:800; line-height:1.15; margin:2px 0 14px; font-variant-numeric:tabular-nums; }}
+.sum .v.sm {{ font-size:1.02rem; font-weight:700; }}
+.sum .note {{ font-size:.76rem; opacity:.82; border-top:1px solid rgba(255,255,255,.22); padding-top:10px; }}
 footer {{ visibility:hidden; }}
 </style>""", unsafe_allow_html=True)
     return b

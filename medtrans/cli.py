@@ -32,13 +32,18 @@ def cmd_translate(cfg, args) -> None:
     if args.require_termbase:
         cfg["terminology"]["require_lock"] = True
     from .config import apply_profile
-    cfg = apply_profile(cfg, args.profile)
+    from .plans import mode_for
+    name = f"plan:{args.plan}" if args.plan else args.profile
+    cfg = apply_profile(cfg, name)
     page_range = None
     if args.pages:
         a, _, b = args.pages.partition("-")
         page_range = (int(a), int(b or a))
     tr = Translator(cfg)
-    res = tr.run(args.pdf, out_dir=args.out, domain=args.domain, page_range=page_range)
+    if mode_for(name or "") == "scan_terms":
+        res = tr.scan_terms(args.pdf, out_dir=args.out, domain=args.domain, page_range=page_range)
+    else:
+        res = tr.run(args.pdf, out_dir=args.out, domain=args.domain, page_range=page_range)
     print(json.dumps(res, ensure_ascii=False, indent=2))
 
 
@@ -117,6 +122,17 @@ def cmd_analyze(cfg, args) -> None:
           f"({t['a4_pages']} trang A4), quy đổi {t['weighted_words']} từ, {res['terms']['unique']} thuật ngữ")
     for b in res["bands"]:
         print(f"  {b['label']:<30} {b['segments']:>7} đoạn {b['words']:>9} từ {b['percent']:>6}%")
+    from .plans import ENGINES, SCOPES, matrix
+    counts = {"pages": res["file"]["pages_analyzed"], "chars": t["chars"], "weighted_chars": t["weighted_chars"],
+              "scanned": res["file"]["scanned_pages"], "images": res["file"]["images"]}
+    mtx = matrix(cfg, counts, _db(cfg))
+    print("\nDỰ TOÁN THEO GÓI (chi phí API · thời gian):")
+    print(f"  {'Phạm vi':<30}" + "".join(f"{ENGINES[e]['label']:<44}" for e in ENGINES))
+    for s in SCOPES:
+        cells = [f"${m['estimated_cost_usd_low']}–{m['estimated_cost_usd_high']} · "
+                 f"{m['estimated_time_low']}–{m['estimated_time_high']}" for m in (mtx[(e, s['key'])] for e in ENGINES)]
+        print(f"  {s['label']:<30}" + "".join(f"{c:<44}" for c in cells))
+    print("  (chạy: python -m medtrans translate file.pdf --plan local:revise | api:publish:w32 ...)")
     for p in res.get("profiles", []):
         print(f"  [{p['label']}] ${p['estimated_cost_usd_low']}–{p['estimated_cost_usd_high']} · "
               f"{p['estimated_time_low']}–{p['estimated_time_high']}")
@@ -219,6 +235,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--mock", action="store_true", help="Chạy thử không gọi API")
     p.add_argument("--lang", help="Ngôn ngữ nguồn (mặc định theo config, hiện có: en)")
     p.add_argument("--profile", help="Hồ sơ chất lượng/chi phí: draft | economy | balanced | premium")
+    p.add_argument("--plan", help="Gói chuẩn <phương thức>:<phạm vi>[:w<luồng>] – phương thức: local | api; phạm vi: "
+                                  "termbase | draft | edit | revise | publish (vd local:revise, api:publish:w32)")
     p.add_argument("--require-termbase", action="store_true", help="Dừng sau quét thuật ngữ, chờ khoá termbase")
     p.set_defaults(fn=cmd_translate)
 

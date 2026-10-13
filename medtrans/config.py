@@ -72,6 +72,9 @@ def profiles(cfg: Config) -> dict[str, dict]:
 def apply_profile(cfg: Config, name: str | None) -> Config:
     """Trả về cấu hình đã áp hồ sơ chất lượng/chi phí (không sửa cfg gốc)."""
     name = name or cfg.get("default_profile", "premium")
+    if name.startswith("plan:"):  # gói chuẩn: phương thức × phạm vi công việc (xem plans.py)
+        from .plans import plan_config
+        return plan_config(cfg, name)
     prof = profiles(cfg).get(name)
     if prof is None:
         raise ValueError(f"Không có hồ sơ '{name}'. Hiện có: {', '.join(profiles(cfg))}")

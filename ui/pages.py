@@ -25,10 +25,17 @@ def _profiles(cfg) -> list[str]:
 
 
 def _money(lo: float, hi: float) -> str:
+    if hi <= 0:
+        return "$0"
+    if hi < 0.01:
+        return "< $0.01"
     return f"${lo:,.0f}–{hi:,.0f}" if hi >= 20 else f"${lo:.2f}–{hi:.2f}"
 
 
 def _plabel(cfg, name: str) -> str:
+    from medtrans import plans
+    if plans.is_plan(name):
+        return plans.plan_label(name)
     return (cfg.get("profiles") or {}).get(name, {}).get("label", name)
 
 
@@ -79,78 +86,312 @@ def dashboard():
 
 
 # =====================================================================================  DỰ ÁN MỚI
-def new_project():
-    cfg, db, q = state.cfg(), state.db(), state.queue()
-    page_header("Dự án mới", "Tải tài liệu, chọn hồ sơ chất lượng/chi phí và đưa vào hàng đợi")
-    files = st.file_uploader("Tài liệu PDF (có thể chọn nhiều file)", type=["pdf"], accept_multiple_files=True)
-    c1, c2, c3 = st.columns(3)
-    lang = c1.selectbox("Ngôn ngữ nguồn → tiếng Việt", list(LANGS),
-                        format_func=lambda c: f"{LANGS[c].name_vi.capitalize()} ({c})")
-    domain = c2.text_input("Chuyên ngành", cfg.get_path("translation.domain", "general_medicine"),
-                           help="cardiology, oncology, pharmacology... Kho thuật ngữ & bộ nhớ dịch lưu theo chuyên ngành")
-    pages = c3.text_input("Phạm vi trang (để trống = toàn bộ)", placeholder="ví dụ 1-50")
-    mode = st.radio("Chế độ", ["Dịch (có thể dừng chờ kiểm tra termbase)", "Chỉ quét thuật ngữ → termbase"],
-                    horizontal=True)
-    gate = st.checkbox("Dừng sau khi quét thuật ngữ để kiểm tra & khoá termbase trước khi dịch chính thức",
-                       value=bool(cfg.get_path("terminology.require_lock", False)),
-                       disabled=mode.startswith("Chỉ"))
+STEPS = ["Tài liệu", "Phương thức xử lý", "Phạm vi công việc", "Xác nhận & chạy"]
 
-    st.subheader("Hồ sơ chất lượng / chi phí")
-    paths = [state.save_upload(f) for f in files] if files else []
-    forecast = {}
-    if paths and st.button("📊 Phân tích & dự báo cho các file đã chọn"):
-        from medtrans.analysis import analyze
-        with st.spinner("Đang phân tích (không gọi API)..."):
-            for pth in paths:
-                st.session_state.setdefault("analysis", {})[str(pth)] = analyze(pth, cfg, db, domain=domain)
+
+def _stepper(done: int) -> None:
+    cells = []
+    for i, name in enumerate(STEPS, 1):
+        cls = "done" if i <= done else ("now" if i == done + 1 else "")
+        cells.append(f"<div class='s {cls}'><div class='n'>{'✓' if cls == 'done' else i}</div>{esc(name)}</div>")
+    st.markdown(f"<div class='stepper'>{''.join(cells)}</div>", unsafe_allow_html=True)
+
+
+def _step(n: int, title: str, sub: str = "") -> None:
+    st.markdown(f"<div class='step'><div class='num'>{n}</div><div><div class='st'>{esc(title)}</div>"
+                + (f"<div class='ss'>{esc(sub)}</div>" if sub else "") + "</div></div>", unsafe_allow_html=True)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _hw() -> dict:
+    from medtrans.hardware import detect
+    return detect()
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def _server_models(url: str) -> list[str] | None:
+    import httpx2
+    try:
+        r = httpx2.get(url.rstrip("/") + "/models", timeout=1.5, trust_env=False)
+        return [m.get("id", "") for m in r.json().get("data", [])]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _parse_pages(txt: str):
+    txt = (txt or "").strip()
+    if not txt:
+        return None
+    a, _, b = txt.partition("-")
+    try:
+        a, b = int(a), int(b or a)
+    except ValueError:
+        return "invalid"
+    return (min(a, b), max(a, b)) if a > 0 and b > 0 else "invalid"
+
+
+def _badge(ok: bool | None, yes: str, no: str) -> str:
+    if ok is None:
+        return "<span class='pill accent'>◆ Chế độ trình diễn</span>"
+    return f"<span class='pill {'good' if ok else 'warn'}'>{'✓' if ok else '!'} {esc(yes if ok else no)}</span>"
+
+
+def _who(name: str) -> str:
+    cls = ("machine" if name == "Máy bạn" else "human" if name.startswith("Bạn") else
+           "api" if name.startswith("Claude") else "local")
+    return f"<span class='who {cls}'>{esc(name)}</span>"
+
+
+def _unit(sec: float) -> tuple[float, str]:
+    if sec < 3600:
+        return max(1, round(sec / 60)), "phút"
+    if sec < 48 * 3600:
+        return round(sec / 3600, 1), "giờ"
+    return round(sec / 86400, 1), "ngày"
+
+
+def _num(x: float) -> str:
+    return (f"{x:.0f}" if float(x).is_integer() else f"{x:.1f}").replace(".", ",")
+
+
+def _trange(est: dict) -> str:
+    """Khoảng thời gian gọn: "2–6 phút", "3,5–7,9 giờ", "45 phút – 1,2 giờ"."""
+    sec = est["estimated_seconds"]
+    (a, ua), (b, ub) = _unit(sec * .7), _unit(sec * 1.6)
+    if ua == ub:
+        return f"≈ {_num(a)} {ua}" if a == b else f"{_num(a)}–{_num(b)} {ua}"
+    return f"{_num(a)} {ua} – {_num(b)} {ub}"
+
+
+def _scan_inputs(paths, cfg, db, domain, pr, lang) -> list[dict]:
+    """Quét & phân tích tài liệu (không gọi API) – lưu đệm theo file + tham số."""
+    from medtrans.analysis import analyze
+    cache = st.session_state.setdefault("np_scan", {})
+    out = []
     for pth in paths:
-        a = st.session_state.get("analysis", {}).get(str(pth))
-        if a:
-            for pr in a.get("profiles", []):
-                f = forecast.setdefault(pr["name"], {"c_lo": 0, "c_hi": 0, "sec": 0, "cal": pr.get("calibration")})
-                f["c_lo"] += pr["estimated_cost_usd_low"]
-                f["c_hi"] += pr["estimated_cost_usd_high"]
-                f["sec"] += pr["estimated_seconds"]
-    names = _profiles(cfg)
-    default = names.index(cfg.get("default_profile", "premium")) if cfg.get("default_profile") in names else 0
-    choice = st.radio("Chọn hồ sơ", names, index=default, horizontal=True, format_func=lambda n: _plabel(cfg, n),
-                      label_visibility="collapsed")
-    cols = []
-    for i in range(0, len(names), 4):
-        cols.extend(st.columns(4))
-    for col, name in zip(cols, names):
-        prof = cfg["profiles"][name]
-        pc = apply_profile(cfg, name)
-        f = forecast.get(name)
-        cal = (f or {}).get("cal")
-        if cal is None:
-            from medtrans.analysis import calibration_for
-            cal = calibration_for(db, name, domain)
-        q_txt = (f"{cal['pass_rate']:.0f}% <span class='muted'>(KTC95 {cal['ci_low']:.0f}–{cal['ci_high']:.0f}%)</span>"
-                 if cal else "<span class='muted'>chưa hiệu chuẩn</span>")
-        from medtrans.translator import _fmt_dur
-        rows = [("Model", esc(pc.get_path("llm.model")) + f" · {esc(pc.get_path('llm.effort'))}"),
-                ("Chi phí dự báo", _money(f["c_lo"], f["c_hi"]) if f else "—"),
-                ("Thời gian dự báo", f"{_fmt_dur(f['sec'] * .7)}–{_fmt_dur(f['sec'] * 1.6)}" if f else "—"),
-                ("Xác suất đạt chuẩn", q_txt), ("MQM hiệu chuẩn", f"{cal['avg_mqm']:.1f}" if cal else "—")]
-        col.markdown(f"<div class='prof {'sel' if name == choice else ''}'><div class='t'>{esc(prof.get('label'))}</div>"
-                     f"<div class='d'>{esc(prof.get('description', ''))}</div>"
-                     + "".join(f"<div class='row'><span>{k}</span><b>{v}</b></div>" for k, v in rows)
-                     + "</div>", unsafe_allow_html=True)
-    st.caption("Xác suất đạt chuẩn = tỉ lệ đoạn đạt MQM ≥ ngưỡng chứng nhận khi hiệu chuẩn trên mẫu của bạn "
-               "(giám khảo tham chiếu cố định), kèm khoảng tin cậy 95%. Chạy ở mục **Hiệu chuẩn**.")
-    st.divider()
-    if st.button("🚀 Đưa vào hàng đợi", type="primary", disabled=not paths):
-        pr = None
-        if pages.strip():
-            a, _, b = pages.partition("-")
-            pr = (int(a), int(b or a))
-        ids = [q.submit(p, domain.strip() or "general_medicine", choice, pr,
-                        mode="scan_terms" if mode.startswith("Chỉ") else "translate",
-                        require_lock=gate and not mode.startswith("Chỉ"), source_lang=lang) for p in paths]
+        key = f"{pth}|{pth.stat().st_mtime}|{domain}|{pr}|{lang}"
+        if key not in cache:
+            c = load_config()
+            c["translation"]["source_lang"] = lang
+            cache[key] = analyze(pth, c, db, domain=domain, page_range=pr, with_profiles=True)
+        out.append(cache[key])
+    return out
+
+
+def new_project():
+    from medtrans import plans
+    cfg, db, q = state.cfg(), state.db(), state.queue()
+    demo = bool(os.environ.get("MEDTRANS_PROVIDER"))
+    ss = st.session_state
+    ss.setdefault("np_engine", cfg.get_path("plans.default_engine", "api"))
+    ss.setdefault("np_scope", cfg.get_path("plans.default_scope", "publish"))
+    page_header("Dự án mới", "Quét tài liệu → chọn phương thức & phạm vi công việc → xem dự toán → đưa vào hàng đợi")
+    stepper = st.empty()
+
+    # ---------------------------------------------------------------- 1. TÀI LIỆU
+    _step(1, "Tài liệu đầu vào", "PDF gốc (văn bản hoặc scan) – hệ thống quét ngay trên máy, không gọi API")
+    with st.container(border=True):
+        files = st.file_uploader("Tài liệu PDF (có thể chọn nhiều file)", type=["pdf"], accept_multiple_files=True)
+        c1, c2, c3 = st.columns(3)
+        lang = c1.selectbox("Ngôn ngữ nguồn → tiếng Việt", list(LANGS),
+                            format_func=lambda c: f"{LANGS[c].name_vi.capitalize()} ({c})")
+        domain = c2.text_input("Chuyên ngành", cfg.get_path("translation.domain", "general_medicine"),
+                               help="cardiology, oncology, pharmacology... Kho thuật ngữ & bộ nhớ dịch lưu theo chuyên ngành")
+        pages_txt = c3.text_input("Phạm vi trang (để trống = toàn bộ)", placeholder="ví dụ 1-50")
+    pr = _parse_pages(pages_txt)
+    if pr == "invalid":
+        st.error("Phạm vi trang không hợp lệ – nhập dạng 1-50 hoặc 12.")
+    paths = [state.save_upload(f) for f in files] if files else []
+    domain = domain.strip() or "general_medicine"
+    scans = []
+    if paths and pr != "invalid":
+        with st.spinner("Đang quét bố cục, đếm từ, đối chiếu bộ nhớ dịch & thuật ngữ..."):
+            scans = _scan_inputs(paths, cfg, db, domain, pr, lang)
+    counts = None
+    if scans:
+        tot = lambda k: sum(a["totals"][k] for a in scans)        # noqa: E731
+        fil = lambda k: sum(a["file"][k] for a in scans)          # noqa: E731
+        counts = {"pages": fil("pages_analyzed"), "chars": tot("chars"), "weighted_chars": tot("weighted_chars"),
+                  "scanned": fil("scanned_pages"), "images": fil("images")}
+        saving = 100 * (1 - counts["weighted_chars"] / counts["chars"]) if counts["chars"] else 0
+        kpis([("Tài liệu", fmt_int(len(scans)), f"{sum(a['file']['size_mb'] for a in scans):.1f} MB"),
+              ("Số trang", fmt_int(counts["pages"]), f"{fmt_int(counts['scanned'])} trang scan"),
+              ("Quy đổi A4", fmt_int(round(counts["chars"] / 3000)), "3.000 ký tự / trang"),
+              ("Từ cần dịch", fmt_int(tot("words")), f"{fmt_int(tot('weighted_words'))} từ quy đổi"),
+              ("Tiết kiệm nhờ TM & lặp", f"{saving:.0f}%", "không phải dịch lại"),
+              ("Thuật ngữ nhận diện", fmt_int(sum(a["terms"]["unique"] for a in scans)),
+               f"{fmt_int(sum(a['terms']['occurrences'] for a in scans))} lần xuất hiện"),
+              ("Hình · Công thức", f"{fmt_int(counts['images'])} · {fmt_int(fil('math_blocks'))}", "dịch chữ · giữ nguyên")],
+             accent_first=True)
+    elif not paths:
+        st.markdown("<div class='muted'>Tải tài liệu lên để hệ thống quét và tính dự toán chi phí – thời gian cho "
+                    "từng phương án bên dưới.</div>", unsafe_allow_html=True)
+    mtx = plans.matrix(cfg, counts, db) if counts else {}
+
+    # ---------------------------------------------------------------- 2. PHƯƠNG THỨC
+    _step(2, "Phương thức xử lý", "Chọn nơi AI chạy – cùng một quy trình kiểm soát chất lượng cho cả hai")
+    hw = _hw()
+    key_ok = None if demo else bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    lbase = plans.local_base(cfg)
+    lpc = apply_profile(cfg, lbase)
+    lmodel = cfg.get_path(f"profiles.{lbase}.llm.local.model") or cfg.get_path("llm.local.model")
+    judge = cfg.get_path("llm.local_judge.model") if (cfg.get_path(f"profiles.{lbase}.llm.routes", {}) or {}).get(
+        "evaluate") == "local_judge" else None
+    models = _server_models(cfg.get_path("llm.local.base_url", "")) if not demo else None
+    local_ok = None if demo else (models is not None)
+    gpu = ", ".join(f"{g['name']} · {g['vram_gb']:.0f} GB" for g in hw["gpus"]) or "Không phát hiện GPU NVIDIA"
+    status = {
+        "local": [("GPU máy này", esc(gpu)),
+                  ("Model local", esc(lmodel) + (f" + giám khảo {esc(judge)}" if judge else "")),
+                  ("Máy chủ AI local", _badge(local_ok, "Đang chạy", "Chưa khởi động")),
+                  ("Claude API (hỗ trợ)", _badge(key_ok, "Đã cấu hình", "Chưa có key"))],
+        "api": [("Model", esc(plans.friendly(cfg.get_path(f"profiles.{plans.base_profile(cfg, 'api', 'publish')}.llm.model")
+                                             or cfg.get_path("llm.model")))),
+                ("Số luồng song song", f"{cfg.get_path('translation.workers', 6)} (tăng ở bước 4)"),
+                ("Claude API key", _badge(key_ok, "Đã cấu hình", "Chưa có key")),
+                ("Yêu cầu máy", "Không cần GPU")],
+    }
+    cols = st.columns(2, gap="medium")
+    for col, ek in zip(cols, plans.ENGINES):
+        e = plans.ENGINES[ek]
+        sel = ss["np_engine"] == ek
+        roles = "".join(f"<span>{esc(a)}</span><b>{esc(b)}</b>" for a, b in e["roles"])
+        stt = "".join(f"<div><span>{a}</span><b>{b}</b></div>" for a, b in status[ek])
+        col.markdown(
+            f"<div class='eng {'sel' if sel else ''}'>"
+            + ("<div class='flag'><span class='pill good'>✓ Đang chọn</span></div>" if sel else "")
+            + f"<div class='hd'><div class='ic'>{e['icon']}</div><div><div class='t'>{esc(e['label'])}</div>"
+            f"<div class='tg'>{esc(e['tagline'])}</div></div></div><div class='roles'>{roles}</div>"
+            f"<div class='stt'>{stt}</div><div class='pc'><div class='pro'>＋ {esc(e['pros'])}</div>"
+            f"<div class='con'>− {esc(e['cons'])}</div></div></div>", unsafe_allow_html=True)
+        col.button("✓ Đã chọn" if sel else "Chọn phương thức này", key=f"np_e_{ek}", width="stretch",
+                   type="primary" if sel else "secondary", on_click=lambda k=ek: ss.update(np_engine=k))
+    engine = ss["np_engine"]
+
+    # ---------------------------------------------------------------- 3. PHẠM VI
+    _step(3, "Phạm vi công việc", "Mỗi mức bao gồm toàn bộ mức trước – chọn đúng nhu cầu để tối ưu chi phí & thời gian")
+    cols = st.columns(len(plans.SCOPES), gap="small")
+    for i, (col, s) in enumerate(zip(cols, plans.SCOPES), 1):
+        sel = ss["np_scope"] == s["key"]
+        chk = "".join(f"<span class='{'on' if k in s['stages'] else 'off'}'>{'✓' if k in s['stages'] else '–'} "
+                      f"{esc(lbl)}</span>" for k, lbl in plans.STAGE_KEYS)
+        est = mtx.get((engine, s["key"]))
+        cost = _money(est["estimated_cost_usd_low"], est["estimated_cost_usd_high"]) if est else "—"
+        tm = _trange(est) if est else "—"
+        col.markdown(
+            f"<div class='scope {'sel' if sel else ''}'><div class='lvl'><span>Mức {i}</span>"
+            f"<span class='pill {'info' if sel else 'neutral'}'>{esc(s['badge'])}</span></div>"
+            f"<div class='t'>{esc(s['label'])}</div><div class='d'>{esc(s['desc'])}</div><div class='chk'>{chk}</div>"
+            f"<div class='est'><div><span>Chi phí</span><b>{cost}</b></div><div><span>Thời gian</span><b>{tm}</b>"
+            f"</div></div><div class='dl'>Bàn giao: {esc(s['deliver'])}</div></div>", unsafe_allow_html=True)
+        col.button("✓ Đã chọn" if sel else "Chọn mức này", key=f"np_s_{s['key']}", width="stretch",
+                   type="primary" if sel else "secondary", on_click=lambda k=s["key"]: ss.update(np_scope=k))
+    scope = ss["np_scope"]
+
+    # bảng so sánh đầy đủ: phạm vi × phương thức
+    head = ("<tr><th></th>" + "".join(f"<th class='c'></th>" for _ in plans.STAGE_KEYS)
+            + "".join(f"<th class='g' colspan='2'>{esc(plans.ENGINES[k]['label'])}</th>" for k in plans.ENGINES)
+            + "</tr><tr><th>Phạm vi</th>" + "".join(f"<th class='c'>{esc(l)}</th>" for _, l in plans.STAGE_KEYS)
+            + "<th class='c'>Chi phí API</th><th class='c'>Thời gian</th>" * len(plans.ENGINES) + "</tr>")
+    body = []
+    for s in plans.SCOPES:
+        tds = "".join(f"<td class='c {'on' if k in s['stages'] else 'off'}'>{'✓' if k in s['stages'] else '–'}</td>"
+                      for k, _ in plans.STAGE_KEYS)
+        for ek in plans.ENGINES:
+            est = mtx.get((ek, s["key"]))
+            hl = " hl" if (ek == engine and s["key"] == scope) else ""
+            tds += (f"<td class='n{hl}'>{_money(est['estimated_cost_usd_low'], est['estimated_cost_usd_high'])}</td>"
+                    f"<td class='n{hl}'>{_trange(est)}</td>" if est
+                    else "<td class='n'>—</td><td class='n'>—</td>")
+        body.append(f"<tr class='{'sel' if s['key'] == scope else ''}'><td><b>{esc(s['label'])}</b></td>{tds}</tr>")
+    st.markdown(f"<div class='card' style='margin-top:14px'><h4>Bảng so sánh phương án</h4>"
+                f"<table class='mx'>{head}{''.join(body)}</table><div class='muted' style='margin-top:8px'>"
+                + ("Dự toán tính từ tài liệu đã quét (đã trừ phần khớp bộ nhớ dịch & câu lặp). Khoảng thấp – cao "
+                   "phản ánh độ khó nội dung. Phương thức local: chi phí là phần gọi Claude hỗ trợ; thời gian theo tốc "
+                   "độ GPU đã đo (<code>python -m medtrans hw --save</code>)." if counts
+                   else "Tải tài liệu lên để xem dự toán.") + "</div></div>", unsafe_allow_html=True)
+
+    # ---------------------------------------------------------------- 4. XÁC NHẬN
+    _step(4, "Xác nhận & chạy", "Quy trình sẽ thực hiện, ai đảm nhiệm từng công đoạn và dự toán cuối cùng")
+    left, right = st.columns([3, 2], gap="large")
+    with left:
+        workers = None
+        if engine == "api" and scope != "termbase":
+            sp = st.segmented_control("Tốc độ xử lý API", list(plans.SPEEDS), default=None, required=False,
+                                      format_func=lambda w: plans.SPEEDS[w], key="np_speed",
+                                      help="Số yêu cầu API chạy song song. Cần hạn mức API (rate limit) tương ứng.")
+            workers = sp or None
+        gate = False
+        if scope not in ("termbase", "draft"):
+            gate = st.toggle("Dừng sau quét thuật ngữ để chuyên gia kiểm tra & khoá termbase",
+                             value=bool(cfg.get_path("terminology.require_lock", False)), key="np_gate")
+        with st.expander("Tuỳ chỉnh nâng cao – dùng hồ sơ chi tiết thay cho gói chuẩn"):
+            adv = st.toggle("Dùng hồ sơ chi tiết", key="np_adv")
+            names = _profiles(cfg)
+            adv_name = st.selectbox("Hồ sơ", names, format_func=lambda n: _plabel(cfg, n), disabled=not adv,
+                                    index=names.index("premium") if "premium" in names else 0)
+            if scans:
+                rows = []
+                for n in names:
+                    ps = [p for a in scans for p in a.get("profiles", []) if p["name"] == n]
+                    if ps:
+                        rows.append({"Hồ sơ": _plabel(cfg, n), "Chi phí API": _money(
+                            sum(p["estimated_cost_usd_low"] for p in ps), sum(p["estimated_cost_usd_high"] for p in ps)),
+                            "Thời gian": _trange({"estimated_seconds": sum(p["estimated_seconds"] for p in ps)}),
+                            "Mô tả": cfg["profiles"][n].get("description", "")})
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        profile = adv_name if adv else plans.plan_name(engine, scope, workers)
+        pc = apply_profile(cfg, profile)
+        if not adv:
+            flow = "".join(f"<div class='r'><div class='i'>{i}</div><div>{esc(a)}</div>{_who(b)}</div>"
+                           for i, (a, b) in enumerate(plans.pipeline(pc), 1))
+            st.markdown(f"<div class='card'><h4>Quy trình sẽ thực hiện</h4><div class='flow'>{flow}</div>"
+                        "<div class='muted' style='margin-top:8px'>Mỗi công đoạn có điểm lưu – có thể tạm dừng, tiếp "
+                        "tục, huỷ ở Hàng đợi; can thiệp từng đoạn ở mục Duyệt.</div></div>", unsafe_allow_html=True)
+    with right:
+        est = None
+        if counts:
+            from medtrans.translator import estimate_from_counts
+            ch = counts["chars"] if pc.get_path("workflow.scope") == "termbase" else counts["weighted_chars"]
+            est = estimate_from_counts(counts["pages"], ch, counts["scanned"], counts["images"], pc, db)
+        from medtrans.analysis import calibration_for
+        cal = calibration_for(db, profile, domain)
+        prob = (f"{cal['pass_rate']:.0f}% <small style='opacity:.8'>(KTC95 {cal['ci_low']:.0f}–{cal['ci_high']:.0f}%)"
+                "</small>" if cal else "Chưa hiệu chuẩn")
+        title = _plabel(cfg, profile)
+        deliver = plans.SCOPE[scope]["deliver"] if not adv else "PDF tiếng Việt + báo cáo"
+        st.markdown(
+            f"<div class='sum'><div class='hd'>{esc(title)}<small>{esc(', '.join(p.name for p in paths) or 'Chưa có tài liệu')}"
+            f"</small></div>"
+            f"<div class='k'>Chi phí API dự kiến</div><div class='v'>"
+            f"{_money(est['estimated_cost_usd_low'], est['estimated_cost_usd_high']) if est else '—'}</div>"
+            f"<div class='k'>Thời gian dự kiến</div><div class='v'>"
+            f"{_trange(est) if est else '—'}</div>"
+            f"<div class='k'>Xác suất đạt chuẩn</div><div class='v sm'>{prob}</div>"
+            f"<div class='k'>Bàn giao</div><div class='v sm'>{esc(deliver)}</div>"
+            f"<div class='note'>{'Số luồng: ' + str(pc.get_path('translation.workers')) + ' · ' if est else ''}"
+            "Xác suất đạt chuẩn đo bằng mục Hiệu chuẩn trên mẫu của bạn (giám khảo tham chiếu cố định). "
+            "Chi phí chỉ gồm token API; chạy local không tính điện năng.</div></div>", unsafe_allow_html=True)
+        st.write("")
+        warn = None
+        if engine == "local" and not adv and local_ok is False:
+            warn = "Máy chủ AI local chưa chạy – khởi động Ollama/vLLM trước (xem Cấu hình & hệ thống)."
+        elif key_ok is False:
+            warn = "Chưa có Claude API key – tạo file .env theo .env.example."
+        if warn:
+            st.warning(warn)
+        go = st.button("🚀 Đưa vào hàng đợi", type="primary", width="stretch",
+                       disabled=not paths or pr == "invalid")
+    with stepper.container():
+        _stepper(3 if paths else 0)
+    if go:
+        mode = plans.mode_for(profile)
+        ids = [q.submit(p, domain, profile, pr if isinstance(pr, tuple) else None, mode=mode,
+                        require_lock=gate and mode == "translate", source_lang=lang) for p in paths]
         st.success(f"Đã đưa {len(ids)} tài liệu vào hàng đợi: " + ", ".join(f"#{i}" for i in ids))
         time.sleep(0.6)
-        st.switch_page(st.session_state["_pages"]["queue"])
+        if st.session_state.get("_pages", {}).get("queue"):
+            st.switch_page(st.session_state["_pages"]["queue"])
 
 
 # =====================================================================================  HÀNG ĐỢI

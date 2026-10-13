@@ -101,7 +101,7 @@ class Translator(PublishingStages):
         self._decided_lock = threading.Lock()
         self._research_lock = threading.Lock()
         self.profile = cfg.get("active_profile") or cfg.get("default_profile", "premium")
-        self.is_draft = self.profile in ("draft", "local_fast")
+        self.is_draft = self.profile in ("draft", "local_fast") or bool(cfg.get_path("workflow.draft", False))
         self.read_only = bool(cfg.get_path("memory.read_only", False))  # hiệu chuẩn: không đọc/ghi bộ nhớ dịch
         self.control = None  # hàm kiểm soát (tạm dừng / huỷ) do hàng đợi gắn vào
         self.escalation_llm = None
@@ -1259,6 +1259,8 @@ def estimate_from_counts(n_pages: int, chars: int, n_scan: int, n_img: int, cfg:
     fid = 1 if use_eval and get("quality.fidelity_audit", True) else 0
     workers = max(1, int(get("translation.workers", 6)))
     effort = EFFORT_FACTOR.get(get("llm.effort", "high"), 1.0)
+    if get("workflow.scope", "") == "termbase":
+        return _estimate_terms_only(n_pages, chars, n_scan, n_img, get, model, workers, effort)
     revise = bool(get("workflow.revise", True))
     edit = bool(get("workflow.edit", True))
     consist = bool(get("workflow.consistency", True))
@@ -1322,6 +1324,35 @@ def estimate_from_counts(n_pages: int, chars: int, n_scan: int, n_img: int, cfg:
             "estimated_seconds": round(total),
             "time_basis": "đo thực tế trên máy này" if measured else "ước lượng mặc định (chưa có số đo)",
             "workers": workers}
+
+
+def _estimate_terms_only(n_pages, chars, n_scan, n_img, get, model, workers, effort) -> dict:
+    """Gói "Dịch thuật ngữ": trích + thẩm định thuật ngữ toàn văn, tra web khi chưa chắc, xuất termbase."""
+    import os as _os
+    from .llm import PRICES
+    k = chars / 1000
+    provider = get("llm.provider", "anthropic")
+    local = provider in ("local", "medcrab")
+    pin, pout, _ = PRICES.get(model, PRICES["claude-opus-5-5"])
+    api_in, api_out = (PRICES["claude-opus-5-5"][:2] if local else (pin, pout))
+    if local:
+        pin = pout = 0.0
+    cost = k * (600 * pin + 300 * pout * effort) / 1e6                      # trích + thẩm định thuật ngữ
+    if get("translation.web_research", True):                                 # tra web: ~1 lượt / 20.000 ký tự
+        cost += k / 20 * (6000 * api_in + 1200 * api_out) / 1e6
+    if get("scan.ocr_correct", True):
+        cost += n_scan * (2500 * pin + 1500 * pout) / 1e6
+    if local:
+        tps = float(get("llm.local.throughput_tokens_per_sec", 60))
+        core = k * 450 / max(1.0, tps)
+    else:
+        core = k * STAGE_SECONDS_PER_KCHAR["termprep"] * 3 * effort * MODEL_SPEED.get(model, 1.0) / workers
+    total = core + n_pages * 0.05 + n_scan * 0.6 / max(1, min(8, _os.cpu_count() or 2)) + 30
+    return {"pages": n_pages, "scanned_pages": n_scan, "chars": chars, "images": n_img,
+            "a4_equivalent_pages": round(chars / 3000, 1), "model": model,
+            "estimated_cost_usd_low": round(cost * 0.7, 2), "estimated_cost_usd_high": round(cost * 1.5, 2),
+            "estimated_time_low": _fmt_dur(total * 0.7), "estimated_time_high": _fmt_dur(total * 1.6),
+            "estimated_seconds": round(total), "time_basis": "ước lượng mặc định", "workers": workers}
 
 
 def estimate(pdf_path: str | Path, model: str = "claude-opus-5-5", cfg: Config | None = None,

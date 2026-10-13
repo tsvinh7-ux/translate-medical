@@ -59,11 +59,44 @@ python -m medtrans ui
 
 ## Sử dụng
 
+### Gói công việc chuẩn: 2 phương thức × 5 phạm vi
+Màn **Dự án mới** là một quy trình 4 bước:
+1. **Tài liệu:** tải PDF lên. Máy quét ngay, không gọi API: số trang, trang scan, quy đổi A4, từ cần dịch, phần tiết kiệm nhờ bộ nhớ dịch, thuật ngữ, hình, công thức.
+2. **Phương thức xử lý**
+
+| | **AI Local + API hỗ trợ** | **API hoàn toàn** |
+|---|---|---|
+| Dịch, biên tập, hiệu đính | Qwen trên GPU của bạn | Claude Opus |
+| Giám khảo MQM, kiểm toán trung thành | Model local (khác họ khi đủ VRAM) | Claude Opus, 2 giám khảo |
+| Tra web, đoạn khó, kiểm tra mẫu, đọc morat | Claude API, chỉ khi cần | Claude Opus |
+| Hồ sơ nền | `local_pro` (GPU ≥ 24 GB) hoặc `local_cascade`, tự chọn theo máy | `premium` (gói dịch thô dùng `draft`) |
+
+3. **Phạm vi công việc:** mỗi mức bao gồm các mức trước.
+
+| Mức | Gói | Công đoạn | Bàn giao |
+|---|---|---|---|
+| 1 | Dịch thuật ngữ | Quét, trích, dịch, tra cứu thuật ngữ | Termbase Excel + TBX để chuyên gia kiểm tra và khoá |
+| 2 | Dịch thô | + Dịch toàn văn theo termbase | PDF tiếng Việt (bản thô, không chứng nhận) |
+| 3 | Dịch + Biên tập | + Biên tập ngôn ngữ, giám khảo ngôn ngữ, kiểm toán trung thành, biên tập toàn văn | PDF + báo cáo chất lượng |
+| 4 | Dịch + Biên tập + Hiệu đính | + Hiệu đính chuyên môn, hội đồng MQM 2 giám khảo | PDF + báo cáo song ngữ + MQM |
+| 5 | Trọn gói xuất bản | + Đọc morat trên trang đã dàn (hình ảnh), sửa morat | PDF sẵn sàng in |
+
+   Mỗi thẻ hiển thị dự toán **chi phí API và thời gian** tính từ chính tài liệu đã quét. **Bảng so sánh** đặt 10 phương án cạnh nhau.
+4. **Xác nhận và chạy:**
+   - danh sách công đoạn sẽ chạy và ai đảm nhiệm (máy bạn, model local hay Claude);
+   - tốc độ API: 6, 16 hoặc 32 luồng;
+   - tuỳ chọn dừng để khoá termbase;
+   - dự toán cuối cùng và xác suất đạt chuẩn (nếu đã hiệu chuẩn).
+
+   Chuyên gia vẫn có thể chọn **hồ sơ chi tiết** trong mục "Tuỳ chỉnh nâng cao".
+
+Dòng lệnh dùng cùng các gói: `python -m medtrans translate sach.pdf --plan local:revise` hoặc `--plan api:publish:w32`. Lệnh `analyze` in bảng dự toán cho đủ 10 phương án.
+
 ### Giao diện web (10 màn hình)
 | Nhóm | Màn hình | Chức năng |
 |---|---|---|
 | Vận hành | 🏠 Tổng quan | KPI: dự án, khối lượng, điểm MQM, tỉ lệ đạt chuẩn, kho dữ liệu, chi phí |
-| | ➕ Dự án mới | Tải nhiều file, chọn ngôn ngữ/chuyên ngành/phạm vi trang, **chọn hồ sơ** (thẻ dự báo chi phí, thời gian, xác suất đạt chuẩn), chốt chặn termbase |
+| | ➕ Dự án mới | Quy trình 4 bước: quét tài liệu → **phương thức** (Local + API / API) → **phạm vi** (termbase → dịch thô → biên tập → hiệu đính → morat) → dự toán và đưa vào hàng đợi |
 | | ⏱️ Hàng đợi & tiến độ | Tiến độ trực tiếp, tạm dừng/tiếp tục/huỷ/chạy lại, tải kết quả |
 | Chất lượng | 📊 Phân tích tài liệu | Thống kê kiểu SDL Trados, xuất Excel |
 | | 🔒 Termbase dự án | Kiểm tra trực tiếp hoặc trao đổi file với chuyên gia → khoá → dịch chính thức |
