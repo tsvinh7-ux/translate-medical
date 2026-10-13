@@ -23,6 +23,20 @@ def cmd_init(cfg, args) -> None:
     print(f"Đã khởi tạo CSDL tại {db.path} và nạp {n} thuật ngữ mẫu.")
 
 
+def cmd_doctor(cfg, args) -> None:
+    """Kiểm tra hệ thống trước khi chạy."""
+    from .doctor import ready, run
+    icon = {"ok": "[OK]  ", "warn": "[!!]  ", "fail": "[LỖI] "}
+    items = run(cfg, call_api=not args.offline)
+    for i in items:
+        print(f"{icon[i['status']]}{i['name']}: {i['detail']}")
+        if i["status"] != "ok" and i["fix"]:
+            print(f"        → {i['fix']}")
+    print("\nSẴN SÀNG CHẠY." if ready(items) else "\nCHƯA SẴN SÀNG – xử lý các mục [LỖI] ở trên.")
+    if not ready(items) and args.strict:
+        raise SystemExit(1)
+
+
 def cmd_translate(cfg, args) -> None:
     from .translator import Translator
     if args.mock:
@@ -255,7 +269,13 @@ def cmd_hw(cfg, args) -> None:
 def cmd_ui(cfg, args) -> None:
     from .branding import write_streamlit_theme
     write_streamlit_theme(cfg)
-    subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app.py"), "--server.address", "localhost"])
+    cred = Path.home() / ".streamlit" / "credentials.toml"
+    if not cred.exists():  # tránh Streamlit hỏi email ở cửa sổ dòng lệnh trong lần chạy đầu
+        cred.parent.mkdir(parents=True, exist_ok=True)
+        cred.write_text('[general]\nemail = ""\n', encoding="utf-8")
+    print("MedTrans đang chạy tại http://localhost:8501 (đóng cửa sổ này để dừng)")
+    subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app.py"), "--server.address", "localhost"],
+                   cwd=str(ROOT))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -341,6 +361,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--include-machine", action="store_true",
                    help="Gồm cả bản dịch máy đã chứng nhận (đạt cổng MQM + kiểm toán trung thành)")
     p.set_defaults(fn=cmd_finetune)
+
+    p = sub.add_parser("doctor", help="Kiểm tra hệ thống: thư viện, khoá API, Tesseract, font, ổ đĩa, AI local")
+    p.add_argument("--offline", action="store_true", help="Không gọi thử API")
+    p.add_argument("--strict", action="store_true", help="Trả mã lỗi nếu chưa sẵn sàng")
+    p.set_defaults(fn=cmd_doctor)
 
     sub.add_parser("providers", help="Kiểm tra nhà cung cấp AI dự phòng (khoá API, model, kết nối)"
                    ).set_defaults(fn=cmd_providers)

@@ -55,7 +55,8 @@ def _passed(u) -> bool:
 
 
 def evaluate_release(units: list, summary: dict, cfg, coverage: dict | None = None,
-                     source_blocks: int | None = None, lqa: dict | None = None, draft: bool = False) -> dict:
+                     source_blocks: int | None = None, lqa: dict | None = None, draft: bool = False,
+                     unread_pages: list[int] | None = None) -> dict:
     from .style import document_metrics
     q = cfg.get("quality", {}) if cfg else {}
     text = [u for u in units if u.kind == "text"]
@@ -85,6 +86,10 @@ def evaluate_release(units: list, summary: dict, cfg, coverage: dict | None = No
         chk("Đủ", "Khối văn bản nguồn được đưa vào dịch",
             source_blocks is None or covered_blocks >= source_blocks,
             f"{covered_blocks}/{source_blocks if source_blocks is not None else covered_blocks}", "100%"),
+        chk("Đủ", "Trang scan được nhận dạng chữ (OCR)", not unread_pages,
+            f"{len(unread_pages or [])} trang chưa đọc được" + (f" (tr. {', '.join(map(str, unread_pages[:20]))})"
+                                                              if unread_pages else ""),
+            "0 trang", [f"trang {p}" for p in (unread_pages or [])]),
         chk("Đủ", "Đoạn có bản dịch", not untranslated, f"{n - len(untranslated)}/{n}", "100%", untranslated),
         chk("Đủ", "Kiểm toán từng câu: không bỏ sót, không thêm, đúng trình tự", not fid,
             f"{len(fid)} đoạn còn lỗi", "0 đoạn", fid),

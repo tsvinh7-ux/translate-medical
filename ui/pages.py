@@ -43,6 +43,12 @@ def _plabel(cfg, name: str) -> str:
 def dashboard():
     cfg, db, q = state.cfg(), state.db(), state.queue()
     page_header("Tổng quan", "Tình hình vận hành, chất lượng và dữ liệu tích luỹ")
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+            or os.environ.get("MEDTRANS_PROVIDER")):
+        st.warning("Chưa có Claude API key – vào **Cấu hình & hệ thống** để nhập khoá và kiểm tra hệ thống trước khi "
+                   "dịch.")
+        if st.session_state.get("_pages", {}).get("settings"):
+            st.page_link(st.session_state["_pages"]["settings"], label="Mở Cấu hình & hệ thống", icon="⚙️")
     seg = db.query("SELECT COUNT(*) n, AVG(CASE WHEN score>0 THEN score END) s, "
                    "SUM(status='certified') c, SUM(status='needs_review') r, SUM(length(src)) ch "
                    "FROM segments WHERE kind='text'")[0]
@@ -640,7 +646,10 @@ def review_page():
                           approved=True, origin="human")
                 st.toast("Đã lưu vào bộ nhớ dịch (đã duyệt).")
     if st.button("🔁 Dựng lại PDF & phiếu kiểm định từ dữ liệu hiện tại", type="primary"):
-        qid = state.queue().submit(j["pdf_path"], j["domain"], cfg.get("default_profile", "premium"))
+        last = db.query("SELECT profile FROM queue WHERE pdf_path=? AND domain=? AND mode='translate' "
+                        "ORDER BY id DESC LIMIT 1", (j["pdf_path"], j["domain"]))
+        qid = state.queue().submit(j["pdf_path"], j["domain"],
+                                   last[0]["profile"] if last else cfg.get("default_profile", "premium"))
         st.success(f"Đã đưa vào hàng đợi #{qid} – các đoạn đã có sẽ được dùng lại, không dịch lại.")
     _lqa_panel(cfg, db, j)
 
@@ -840,17 +849,51 @@ def tm_page():
 
 
 # =====================================================================================  CẤU HÌNH
+@st.cache_data(ttl=120, show_spinner=False)
+def _doctor(_k: int = 0) -> list[dict]:
+    from medtrans.doctor import run
+    return run(load_config(), call_api=True)
+
+
+def _setup_panel(cfg, key_ok: bool) -> None:
+    """Thiết lập lần đầu & kiểm tra hệ thống."""
+    from medtrans.doctor import check_api_key, ready, save_api_key
+    st.subheader("Thiết lập & kiểm tra hệ thống")
+    with st.container(border=True):
+        c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
+        key = c1.text_input("Claude API key", type="password", placeholder="sk-ant-…",
+                            help="Lấy tại console.anthropic.com → API Keys. Khoá được lưu trong file .env trên máy này.")
+        if c2.button("💾 Lưu & kiểm tra", width="stretch", disabled=not key.strip()):
+            save_api_key(key)
+            r = check_api_key(load_config())
+            (st.success if r["status"] == "ok" else st.error)(f"{r['detail']}" + (f" – {r['fix']}" if r["fix"] else ""))
+            _doctor.clear()
+        if st.button("↻ Kiểm tra lại toàn bộ"):
+            _doctor.clear()
+        items = _doctor()
+        icon = {"ok": ("✓", "good"), "warn": ("!", "warn"), "fail": ("✕", "bad")}
+        rows = "".join(
+            f"<tr><td><span class='pill {icon[i['status']][1]}'>{icon[i['status']][0]}</span></td>"
+            f"<td><b>{esc(i['name'])}</b></td><td>{esc(i['detail'])}"
+            + (f"<div class='muted'>→ {esc(i['fix'])}</div>" if i["status"] != "ok" and i["fix"] else "")
+            + "</td></tr>" for i in items)
+        st.markdown(f"<table class='tbl'>{rows}</table>", unsafe_allow_html=True)
+        if ready(items):
+            st.success("Hệ thống sẵn sàng chạy.")
+        else:
+            st.error("Chưa sẵn sàng – xử lý các mục ✕ ở trên.")
+
+
 def settings_page():
     cfg, db = state.cfg(), state.db()
     page_header("Cấu hình & hệ thống", "Kết nối API, tài nguyên máy, quy ước chuyên ngành, cấu hình")
     from medtrans.scan import tesseract_available
+    _setup_panel(cfg, True)
     key_ok = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
     kpis([("Claude API key", "Đã cấu hình" if key_ok else "Chưa có", ".env"),
           ("Tesseract OCR", "Sẵn sàng" if tesseract_available() else "Chưa cài", "PDF scan & chữ trong hình"),
           ("Nhân CPU", os.cpu_count() or "?", "OCR & dàn trang song song"),
           ("Hồ sơ mặc định", _plabel(cfg, cfg.get("default_profile", "premium")))])
-    if not key_ok:
-        st.warning("Chưa có ANTHROPIC_API_KEY. Tạo file `.env` theo `.env.example` rồi khởi động lại.")
     st.subheader("Phần cứng máy này & đề xuất")
     from medtrans.hardware import detect, recommend
     hw = detect()

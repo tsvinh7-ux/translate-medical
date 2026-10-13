@@ -142,3 +142,28 @@ def test_providers_config(monkeypatch):
     assert isinstance(f, FailoverLLM) and f.chain[1].model == "gpt-x" and f.chain[1].trust_env
     f.chain[1].usage.input_tokens = 1_000_000
     assert f.chain[1].usage.cost("gpt-x") == 1.0
+
+
+def test_release_blocks_unread_scanned_pages(done_job):
+    cfg, db, tr, res, _ = done_job
+    rel = evaluate_release(tr.units, res, apply_profile(cfg, "premium"), unread_pages=[3, 7])
+    c = next(c for c in rel["checks"] if "Trang scan" in c["name"])
+    assert not c["ok"] and rel["verdict"] == "hold" and "trang 3" in rel["to_fix"]
+
+
+def test_doctor_and_api_key_storage(tmp_path, monkeypatch):
+    from medtrans import doctor
+    monkeypatch.setenv("MEDTRANS_DB", str(tmp_path / "d.db"))
+    items = doctor.run(load_config(), call_api=False)
+    names = {i["name"] for i in items}
+    assert {"Python", "Thư viện", "Tesseract OCR", "Font tiếng Việt", "Ổ đĩa", "Cơ sở dữ liệu"} <= names
+    assert all(i["status"] in ("ok", "warn", "fail") for i in items)
+    monkeypatch.setattr(doctor, "ROOT", tmp_path)
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=old\nOPENAI_API_KEY=x\n", encoding="utf-8")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    doctor.save_api_key(" sk-ant-new ")
+    txt = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "ANTHROPIC_API_KEY=sk-ant-new" in txt and "old" not in txt and "OPENAI_API_KEY=x" in txt
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-...")
+    monkeypatch.delenv("MEDTRANS_PROVIDER", raising=False)
+    assert doctor.check_api_key(load_config())["status"] == "fail"       # khoá mẫu chưa điền → báo thiếu

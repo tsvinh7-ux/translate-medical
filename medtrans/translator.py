@@ -374,8 +374,9 @@ class Translator(PublishingStages):
         block_pages = {b.id: b.page for u in units if u.kind == "text" for b in u.blocks}
         coverage = rendered_coverage(out_pdf, blocks, block_pages, (page_range[0] - 1) if page_range else 0)
         src_blocks = sum(1 for p in pages for b in p.blocks if not b.keep)
+        unread = [p.number + 1 for p in pages if p.scanned and not p.blocks]  # trang scan không đọc được chữ
         release = evaluate_release(units, summary, self.cfg, coverage, src_blocks, lqa.latest(self.db, self.job_id),
-                                   draft=self.is_draft)
+                                   draft=self.is_draft, unread_pages=unread)
         summary["release"] = {"verdict": release["verdict"], "label": release["label"],
                               "pass_percent": release["pass_percent"], "to_fix": len(release["to_fix"]),
                               "rendered_percent": coverage["percent"], "style": release["style"],
@@ -986,6 +987,11 @@ class Translator(PublishingStages):
         fonts = find_fonts(lcfg)
         font_path = fonts.sans[0] or fonts.serif[0]
         engine = lcfg.get("image_ocr", "tesseract")
+        if engine == "tesseract":
+            from .scan import tesseract_available
+            if not tesseract_available():  # máy chưa cài Tesseract → để AI đọc chữ trong hình thay vì bỏ sót
+                engine = "claude"
+                log.warning("Chưa cài Tesseract – chữ trong hình sẽ do AI đọc (tốn thêm token)")
         doc = pymupdf.open(str(pdf_path))
         groups: dict[str, list] = {}
         seen: set[int] = set()

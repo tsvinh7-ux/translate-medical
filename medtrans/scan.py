@@ -33,13 +33,38 @@ def is_scanned(page: pymupdf.Page, min_chars: int = 30, min_cover: float = 0.4) 
     return covered / area >= min_cover
 
 
+_TESS_PATHS = [
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+    "/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract", "/usr/bin/tesseract",
+]
+_TESS_OK: bool | None = None
+
+
+def tesseract_cmd() -> str | None:
+    """Tìm Tesseract: PATH → biến TESSERACT_CMD → thư mục cài đặt mặc định (Windows/macOS/Linux)."""
+    import shutil
+    for c in [os.environ.get("TESSERACT_CMD", ""), shutil.which("tesseract") or "", *_TESS_PATHS]:
+        if c and os.path.isfile(c):
+            return c
+    return None
+
+
 def tesseract_available() -> bool:
+    global _TESS_OK
+    if _TESS_OK is not None:
+        return _TESS_OK
     try:
         import pytesseract
+        cmd = tesseract_cmd()
+        if cmd:
+            pytesseract.pytesseract.tesseract_cmd = cmd
         pytesseract.get_tesseract_version()
-        return True
+        _TESS_OK = True
     except Exception:
-        return False
+        _TESS_OK = False
+    return _TESS_OK
 
 
 def render_page(page: pymupdf.Page, dpi: int) -> Image.Image:

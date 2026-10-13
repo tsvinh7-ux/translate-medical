@@ -32,30 +32,33 @@ Công cụ chạy **trên máy của bạn (localhost)** và gọi **Claude API*
 
 > **Trước khi triển khai, hãy đọc [docs/CHUAN_BI_TRIEN_KHAI.md](docs/CHUAN_BI_TRIEN_KHAI.md)**: những gì cần chuẩn bị và phê duyệt (API, máy, dữ liệu, thương hiệu), cách tính chi phí và thời gian dịch.
 
-## Cài đặt (Windows / macOS / Linux)
+## Cài đặt và chạy (Windows / macOS / Linux)
 
-1. Cài **Python 3.10 trở lên** từ https://www.python.org/downloads/. Trên Windows nhớ tick *Add Python to PATH*.
-2. Cài **Tesseract OCR** (để dịch chữ trong hình):
-   - Windows: bản cài của UB Mannheim https://github.com/UB-Mannheim/tesseract/wiki, sau đó thêm thư mục cài vào PATH.
-   - macOS: `brew install tesseract`
-   - Ubuntu: `sudo apt install tesseract-ocr`
+Hướng dẫn từng bước cho người không chuyên kỹ thuật: **[HUONG_DAN_CHAY.md](HUONG_DAN_CHAY.md)**. Tóm tắt:
 
-   Nếu không cài Tesseract, hãy đặt `layout.image_ocr: claude` trong `config.yaml` (Claude đọc chữ trong hình, tốn thêm token) hoặc `off`.
-3. Lấy **API key** tại https://console.anthropic.com. Sao chép `.env.example` thành `.env` rồi điền:
-   ```
-   ANTHROPIC_API_KEY=sk-ant-...
-   ```
-4. Khởi động:
-   - Windows: nháy đúp `run_windows.bat`
-   - macOS/Linux: `./run_mac_linux.sh`
+1. Cài **Python 3.10+** (Windows: tick *Add Python to PATH*). Nên cài thêm **Tesseract OCR** để đọc PDF scan.
+2. Tải mã nguồn về máy (GitHub → *Code → Download ZIP*, rồi giải nén).
+3. Khởi động:
+   - Windows: nháy đúp **`run_windows.bat`**.
+   - macOS/Linux: chạy **`./run_mac_linux.sh`**.
 
-   Lần đầu chạy, script tự cài thư viện và nạp bộ thuật ngữ mẫu, sau đó mở trình duyệt tại `http://localhost:8501`.
+   Lần đầu, script tự làm các việc sau rồi mở `http://localhost:8501`:
+   - tạo môi trường riêng và cài thư viện;
+   - nạp bộ thuật ngữ mẫu;
+   - **kiểm tra hệ thống**.
+4. Trong giao diện, vào **Cấu hình & hệ thống**, dán **Claude API key** rồi bấm **Lưu & kiểm tra**. Hệ thống gọi thử API (không tốn token) và báo từng mục ✓ / ! / ✕.
+5. Vào **Dự án mới**: tải PDF, chọn phương thức và phạm vi công việc, xem dự toán, rồi đưa vào hàng đợi.
+
+Kiểm tra hệ thống bằng dòng lệnh: `python -m medtrans doctor`.
+
+Chạy thử không cần API key (AI giả lập): `MEDTRANS_PROVIDER=mock python -m medtrans ui`.
 
 Cài thủ công:
 ```bash
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python -m medtrans init
+python -m medtrans doctor
 python -m medtrans ui
 ```
 
