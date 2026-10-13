@@ -248,11 +248,11 @@ def _backend(name: str, cfg: dict):
     if name == "anthropic":
         return ClaudeLLM(cfg)
     from .llm_local import MedCrabLLM, OpenAICompatLLM
-    if name == "local":
-        return OpenAICompatLLM(cfg.get("local", {}))
+    if name == "local" or (name.startswith("local_") and name in cfg):  # vd local_judge: model local thứ hai
+        return OpenAICompatLLM(cfg.get(name, {}))
     if name == "medcrab":
         return MedCrabLLM(cfg.get("medcrab", {}))
-    raise ValueError(f"Không biết nhà cung cấp model '{name}' (anthropic | local | medcrab | mock)")
+    raise ValueError(f"Không biết nhà cung cấp model '{name}' (anthropic | local | local_judge | medcrab | mock)")
 
 
 def make_llm(cfg: dict):

@@ -26,7 +26,7 @@ Công cụ chạy **trên máy của bạn (localhost)** và gọi **Claude API*
 | ➕ | Quy trình xuất bản | Chuẩn bị thuật ngữ toàn văn → dịch → **hiệu đính chuyên môn** → **biên tập ngôn ngữ** → hội đồng giám khảo MQM → **biên tập toàn văn** → dàn trang → **đọc morat** (so ảnh trang) → sửa morat. Chi tiết trong [docs/QUY_TRINH_CHAT_LUONG.md](docs/QUY_TRINH_CHAT_LUONG.md) |
 | ➕ | PDF scan | Tự nhận diện trang scan, OCR theo đoạn văn, Claude sửa lỗi OCR, đi qua cùng quy trình chất lượng, giữ định dạng cơ bản |
 
-> **Chạy bằng API hay chạy LOCAL (Qwen, MedCrab…)?** Xem [docs/CHAY_LOCAL.md](docs/CHAY_LOCAL.md): đánh giá MedCrab, 2 phương án + phương án lai, phần cứng, tinh chỉnh.
+> **Chạy bằng API hay chạy LOCAL (Qwen, MedCrab…)?** Xem [docs/CHAY_LOCAL.md](docs/CHAY_LOCAL.md): đánh giá MedCrab, 2 phương án + phương án lai, phần cứng, tinh chỉnh. Mua/nâng cấp máy: [docs/PHAN_CUNG.md](docs/PHAN_CUNG.md).
 
 > **Trước khi triển khai, hãy đọc [docs/CHUAN_BI_TRIEN_KHAI.md](docs/CHUAN_BI_TRIEN_KHAI.md)**: những gì cần chuẩn bị và phê duyệt (API, máy, dữ liệu, thương hiệu), cách tính chi phí và thời gian dịch.
 

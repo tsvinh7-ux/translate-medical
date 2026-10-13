@@ -153,8 +153,8 @@ def cmd_calibrate(cfg, args) -> None:
 def cmd_finetune(cfg, args) -> None:
     from .finetune import export_jsonl
     if args.include_machine:
-        print("CẢNH BÁO: đưa bản dịch do Claude chứng nhận vào dữ liệu huấn luyện – chỉ làm khi đã được pháp chế/"
-              "Anthropic xác nhận phù hợp điều khoản (Commercial Terms, mục D.4).")
+        print("Lưu ý: dữ liệu gồm cả bản dịch máy đã chứng nhận – chủ sở hữu tự chịu trách nhiệm tuân thủ điều khoản "
+              "nhà cung cấp API (Anthropic Commercial Terms, mục D.4).")
     print(json.dumps(export_jsonl(_db(cfg), args.out, domain=args.domain, include_machine=args.include_machine,
                                   min_quality=args.min_quality), ensure_ascii=False, indent=2))
 
@@ -162,7 +162,7 @@ def cmd_finetune(cfg, args) -> None:
 def cmd_local_check(cfg, args) -> None:
     """Kiểm tra kết nối máy chủ model local & MedCrab."""
     import httpx2
-    for name in ("local", "medcrab"):
+    for name in ("local", "local_judge", "medcrab"):
         c = cfg.get_path(f"llm.{name}", {}) or {}
         url = (c.get("base_url") or "").rstrip("/")
         try:
@@ -183,6 +183,8 @@ def cmd_hw(cfg, args) -> None:
     print("GPU: " + (", ".join(f"{g['name']} ({g['vram_gb']} GB)" for g in info["gpus"]) or "không phát hiện GPU NVIDIA"))
     print(f"\n→ Mức: {rec['tier']}\n→ Model local đề xuất: {rec['local_model']}\n→ Hồ sơ đề xuất: {rec['profile']}"
           f"\n→ Ghi chú: {rec['note']}")
+    if rec.get("upgrade"):
+        print(f"→ Nâng cấp kế tiếp: {rec['upgrade']} (xem docs/PHAN_CUNG.md)")
     try:
         b = bench(cfg)
         print(f"\nĐo thật model local '{b['model']}': {b['tokens_per_sec']} token/giây "
@@ -280,7 +282,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--domain")
     p.add_argument("--min-quality", type=int, default=95)
     p.add_argument("--include-machine", action="store_true",
-                   help="Gồm cả bản dịch AI chứng nhận (cần xác nhận pháp lý trước)")
+                   help="Gồm cả bản dịch máy đã chứng nhận (đạt cổng MQM + kiểm toán trung thành)")
     p.set_defaults(fn=cmd_finetune)
 
     sub.add_parser("local-check", help="Kiểm tra kết nối model local / MedCrab").set_defaults(fn=cmd_local_check)

@@ -3,9 +3,9 @@
 Định dạng: JSONL hội thoại (system/user/assistant) – dùng được với Unsloth, LLaMA-Factory, Axolotl, TRL, MLX-LM.
 Mỗi mẫu kèm THUẬT NGỮ BẮT BUỘC khớp trong câu → model học dịch theo termbase (điểm yếu lớn nhất của model nhỏ).
 
-NGUỒN DỮ LIỆU (mặc định an toàn): chỉ cặp câu do NGƯỜI dịch/duyệt (origin = human | import).
-Điều khoản thương mại của Anthropic (mục D.4) không cho dùng dịch vụ để "train competing AI models" nếu chưa được
-chấp thuận → chỉ bật include_machine=True sau khi pháp chế/Anthropic xác nhận.
+NGUỒN DỮ LIỆU: mặc định chỉ cặp câu do NGƯỜI dịch/duyệt (origin = human | import) – chất lượng huấn luyện tốt nhất.
+include_machine=True thêm cả bản dịch máy ĐÃ CHỨNG NHẬN (đạt cổng MQM + kiểm toán trung thành); chủ sở hữu tự chịu
+trách nhiệm tuân thủ điều khoản nhà cung cấp API (Anthropic Commercial Terms, mục D.4).
 """
 from __future__ import annotations
 

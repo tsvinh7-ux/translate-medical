@@ -23,6 +23,14 @@ llm:
     max_tokens: 16000
     timeout_seconds: 1800
     throughput_tokens_per_sec: 60           # tốc độ sinh tổng (dùng để dự báo thời gian) – đo lại trên máy bạn
+  local_judge:                 # GIÁM KHẢO LOCAL THỨ HAI – nên KHÁC HỌ với model dịch (dịch Qwen → chấm Gemma)
+    base_url: http://localhost:11434/v1     # để model không tự chấm bài của chính mình (lỗi trùng nhau)
+    model: gemma4:31b                       # kiểm tra tag mới nhất: `ollama list` / python -m medtrans local-check
+    json_mode: json_schema
+    temperature: 0.0
+    max_tokens: 16000
+    timeout_seconds: 1800
+    throughput_tokens_per_sec: 35
   medcrab:                     # MedCrab-1.5B (Qwen2.5-1.5B tinh chỉnh Anh→Việt y khoa) – CHỈ làm bước dịch
     engine: completions                     # completions (vLLM/llama.cpp phục vụ model) | transformers (nạp trực tiếp)
     base_url: http://localhost:8001/v1
@@ -176,6 +184,16 @@ profiles:
     translation: {workers: 2}
     workflow: {revise: false, edit: true, consistency: true}
     quality: {judges: [clinical], eval_rounds: 1, certify_score: 96}
+    proof: {enabled: true, vision: true, rounds: 1}
+  local_pro:
+    label: "Local Pro – 2 model chấm chéo + Claude"
+    description: "Cho máy GPU 24–32 GB trở lên: Qwen ~27B dịch, hiệu đính, biên tập; model KHÁC HỌ (Gemma ~31B) làm giám khảo & kiểm toán trung thành; Claude chỉ tra web, sửa đoạn khó, kiểm tra mẫu và đọc morat."
+    llm: {provider: local, effort: high, review_effort: high, local: {model: "qwen3.6:27b"},
+          routes: {evaluate: local_judge, fidelity: local_judge, research: anthropic, proof: anthropic, ocr_fix: anthropic}}
+    escalation: {enabled: true, expected_share: 0.15, audit_rate: 0.1}
+    translation: {workers: 3}
+    workflow: {revise: true, edit: true, consistency: true}
+    quality: {judges: [clinical, linguistic], eval_rounds: 2, certify_score: 96}
     proof: {enabled: true, vision: true, rounds: 1}
   local_fast:
     label: "Local – bản thô MedCrab"

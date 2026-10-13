@@ -197,3 +197,20 @@ def test_hardware_tiers():
     assert "qwen3:8b" in r["local_model"] and r["profile"].startswith("local_cascade")
     r4 = recommend({"gpus": [{"name": "RTX 3050 Laptop", "vram_gb": 4.0}], "ram_gb": 16})
     assert "4b" in r4["local_model"]
+    assert "12–16 GB" in r["upgrade"]
+    r24 = recommend({"gpus": [{"name": "RTX 3090", "vram_gb": 24.0}], "ram_gb": 32})
+    assert r24["profile"].startswith("local_pro") and "64 GB" in r24["note"]
+
+
+def test_local_pro_cross_family_judge(server):
+    """Local Pro: model dịch và model giám khảo là HAI backend local khác nhau; Claude chỉ tra web/đọc morat."""
+    cfg = apply_profile(load_config(), "local_pro")
+    llm_cfg = dict(cfg["llm"], local=dict(cfg["llm"]["local"], base_url=server),
+                   local_judge=dict(cfg["llm"]["local_judge"], base_url=server),
+                   routes={k: v for k, v in cfg["llm"]["routes"].items() if v != "anthropic"})
+    r = make_llm(llm_cfg)
+    assert isinstance(r, RoutedLLM)
+    tr, judge = r._pick("translate"), r._pick("evaluate")
+    assert tr is not judge and r._pick("fidelity") is judge
+    assert tr.model != judge.model                                       # khác model → không tự chấm bài mình
+    assert cfg["escalation"]["enabled"] and cfg["llm"]["routes"]["research"] == "anthropic"

@@ -62,7 +62,7 @@ def load_config(path: str | Path | None = None, overrides: dict | None = None) -
     return Config(data)
 
 
-PROFILE_ORDER = ["draft", "economy", "balanced", "premium", "local_cascade", "local_fast", "local_quality", "hybrid"]
+PROFILE_ORDER = ["draft", "economy", "balanced", "premium", "local_cascade", "local_pro", "local_fast", "local_quality", "hybrid"]
 
 
 def profiles(cfg: Config) -> dict[str, dict]:

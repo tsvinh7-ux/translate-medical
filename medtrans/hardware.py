@@ -8,24 +8,36 @@ import shutil
 import subprocess
 import time
 
-# (VRAM tối thiểu GB, khuyến nghị) – model lượng tử 4-bit qua Ollama/llama.cpp
+# (VRAM tối thiểu GB, khuyến nghị) – model lượng tử 4–8 bit qua Ollama/llama.cpp/vLLM.
+# Tên tag model thay đổi theo phiên bản: kiểm tra tại ollama.com/library trước khi tải.
 TIERS = [
     (0, {"tier": "Không có GPU NVIDIA", "local_model": "qwen3:4b (chạy CPU, rất chậm)", "profile": "premium / economy",
          "note": "Nên dùng API cho bước dịch; máy vẫn làm tốt OCR, phân tích, dàn trang, hàng đợi."}),
-    (3.5, {"tier": "GPU 4–6 GB (vd RTX 3050 laptop 4 GB)", "local_model": "qwen3:4b hoặc MedCrab-1.5B",
+    (3.5, {"tier": "GPU 4–6 GB (vd RTX 3050 laptop 4 GB)", "local_model": "qwen3:4b",
            "profile": "local_cascade (model qwen3:4b) hoặc hybrid",
            "note": "Đủ cho dịch nháp; giám khảo local yếu → tỉ lệ leo thang lên API cao (ước 40–60%)."}),
     (7.5, {"tier": "GPU 8 GB (vd RTX 3050 8 GB, 3060 Ti, 4060)", "local_model": "qwen3:8b (Q4_K_M ≈ 5,5 GB)",
            "profile": "local_cascade",
            "note": "Dịch + tự chấm cơ bản trên máy; đoạn khó leo thang API (ước 25–40%). Không chạy được 14B+ đủ nhanh."}),
-    (11.5, {"tier": "GPU 12–16 GB (RTX 3060 12 GB, 4060 Ti 16 GB, 4080)", "local_model": "qwen3:14b (Q4 ≈ 9 GB)",
+    (11.5, {"tier": "GPU 12–16 GB (RTX 3060 12 GB, 4060 Ti/5060 Ti 16 GB, 4080/5080)",
+            "local_model": "qwen3:14b (Q4 ≈ 9 GB) hoặc Gemma 4 12B",
             "profile": "local_cascade (model qwen3:14b)", "note": "Chất lượng local khá; leo thang ước 15–30%."}),
-    (23, {"tier": "GPU 24 GB (RTX 3090/4090)", "local_model": "qwen3:32b (Q4 ≈ 20 GB)",
-          "profile": "local_cascade (qwen3:32b) hoặc local_quality",
-          "note": "Có thể chạy toàn quy trình local; vẫn nên kiểm tra mẫu bằng API."}),
-    (47, {"tier": "GPU ≥ 48 GB / nhiều GPU (A6000, A100, H100)", "local_model": "Qwen 32B–72B qua vLLM",
-          "profile": "local_quality / local_cascade", "note": "Thông lượng cao (vLLM xử lý theo lô)."}),
+    (23, {"tier": "GPU 24 GB (RTX 3090/4090)", "local_model": "Qwen ~27B dense, Q4 (≈ 17–18 GB), vd qwen3.6:27b",
+          "profile": "local_pro (2 model luân phiên) hoặc local_cascade",
+          "note": "Ngưỡng chất lượng local tốt; giám khảo khác họ phải nạp luân phiên (chậm hơn). Leo thang ước 10–20%."}),
+    (31, {"tier": "GPU 32 GB (RTX 5090)", "local_model": "Qwen ~27B Q6/Q8 + giám khảo Gemma 4 31B Q4",
+          "profile": "local_pro", "note": "Model dịch ở độ chính xác cao hơn (Q6/Q8); giám khảo vẫn nạp luân phiên."}),
+    (47, {"tier": "GPU 48–96 GB (RTX PRO 5000/6000, 2× RTX 3090/4090)",
+          "local_model": "Qwen ~27B Q8 + Gemma 4 31B cùng nạp sẵn; hoặc MoE ~120B (Qwen3.5-122B-A10B, gpt-oss-120b)",
+          "profile": "local_pro", "note": "Hai model chạy song song không phải nạp lại; dùng vLLM để xử lý theo lô."}),
 ]
+
+
+def _next_tier(vram: float) -> str | None:
+    for need, r in TIERS:
+        if need > vram:
+            return f"{r['tier']} → {r['local_model']}"
+    return None
 
 
 def detect() -> dict:
@@ -70,9 +82,11 @@ def recommend(info: dict) -> dict:
     for need, r in TIERS:
         if vram >= need:
             rec = r
-    out = {**rec, "vram_gb": vram}
+    out = {**rec, "vram_gb": vram, "upgrade": _next_tier(vram)}
     if info.get("ram_gb") and info["ram_gb"] < 16:
         out["note"] += " RAM < 16 GB: nên nâng lên 16–32 GB để chạy model + PDF lớn ổn định."
+    elif vram >= 23 and info.get("ram_gb") and info["ram_gb"] < 64:
+        out["note"] += " Nên có RAM ≥ 64 GB (≥ 2× VRAM) để nạp/đổi model nhanh và xử lý sách 1.000 trang."
     return out
 
 

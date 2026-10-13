@@ -540,11 +540,13 @@ def settings_page():
     st.markdown(f"<div class='card'><b>{esc(rec['tier'])}</b><div class='muted'>GPU: {esc(gpu)} · RAM: "
                 f"{hw['ram_gb']} GB</div><div style='margin-top:6px'>Model local đề xuất: <b>{esc(rec['local_model'])}"
                 f"</b> · Hồ sơ đề xuất: <b>{esc(rec['profile'])}</b></div><div class='muted'>{esc(rec['note'])}</div>"
+                + (f"<div class='muted'>Nâng cấp kế tiếp: {esc(rec['upgrade'])}</div>" if rec.get("upgrade") else "") +
                 "<div class='muted'>Đo tốc độ thật: <code>python -m medtrans hw --save</code></div></div>",
                 unsafe_allow_html=True)
     st.subheader("Model chạy local")
     import httpx2
     for name, label in (("local", "Máy chủ model local (Ollama / vLLM / llama.cpp / LM Studio)"),
+                        ("local_judge", "Giám khảo local thứ hai (hồ sơ Local Pro)"),
                         ("medcrab", "MedCrab-1.5B (dịch nháp)")):
         c = cfg.get_path(f"llm.{name}", {}) or {}
         url = (c.get("base_url") or "").rstrip("/")

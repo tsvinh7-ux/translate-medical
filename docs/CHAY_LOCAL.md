@@ -50,6 +50,8 @@
 | Đọc morat bằng hình ảnh, sửa lỗi OCR trang scan | Claude API (cần model thị giác mạnh) | Theo trang |
 | OCR, phân tích, dàn trang, hàng đợi | Máy bạn (Tesseract, PyMuPDF) | 0 |
 
+**Khi có GPU 24 GB trở lên, dùng hồ sơ `local_pro`:** Qwen ~27B dịch, hiệu đính và biên tập; **một model khác họ** (Gemma ~31B, khai báo ở `llm.local_judge`) làm giám khảo MQM và kiểm toán trung thành. Hai model khác họ ít mắc cùng một lỗi, nên giám khảo local đáng tin hơn và tỉ lệ phải gọi Claude giảm (ước 10–20%).
+
 **Chứng nhận:** chỉ đoạn **đã được Claude xác nhận** mới vào bộ nhớ dịch "đạt chuẩn". Nhờ vậy kho dữ liệu không bị nhiễm lỗi của model nhỏ. Báo cáo ghi tỉ lệ leo thang và **độ khớp giữa giám khảo local và Claude**. Khi model local được tinh chỉnh tốt hơn, tỉ lệ leo thang giảm và chi phí giảm theo.
 
 ## 1c. Máy RTX 3050 + Core i5 có đủ không?
@@ -70,6 +72,7 @@ Còn tuỳ **RTX 3050 bản nào**: bản desktop có **8 GB VRAM**; bản lapto
 - **Không đủ** để chạy toàn bộ quy trình chất lượng xuất bản chỉ bằng local. Giám khảo đáng tin cần model khoảng 32B trở lên, tức GPU 24 GB.
 - Nếu muốn giảm mạnh phụ thuộc API, khoản nâng cấp đáng giá nhất là **một GPU 24 GB** (RTX 3090 cũ hoặc 4090), kèm RAM 32 GB.
 - Tinh chỉnh model 8B–14B nên **thuê GPU đám mây theo giờ** rồi mang model về chạy trên máy.
+- Cấu hình nâng cấp và máy trạm mới chi tiết (giá tháng 10/2026): xem **[PHAN_CUNG.md](PHAN_CUNG.md)**.
 
 ## 1d. Tận dụng tài sản từ SDL Trados
 - **Xuất TMX** từ các dự án Trados cũ (những bản đã qua người hiệu đính), rồi **nhập vào Bộ nhớ dịch** của MedTrans:
@@ -85,11 +88,9 @@ Còn tuỳ **RTX 3050 bản nào**: bản desktop có **8 GB VRAM**; bản lapto
 2. **Dữ liệu song ngữ chất lượng cao, đúng chuyên ngành:** khoảng 20.000–100.000 cặp đoạn, kèm thuật ngữ bắt buộc. Lệnh `python -m medtrans finetune` xuất sẵn dữ liệu đúng định dạng.
 3. **Vẫn giữ quy trình kiểm soát của MedTrans:** termbase khoá, kiểm toán trung thành, chấm MQM. Tinh chỉnh giúp **bản dịch đầu** tốt hơn, nhưng không thay được cổng chất lượng.
 
-**Lưu ý về dữ liệu huấn luyện** (bản quyền sách đã được bạn mua; lưu ý dưới đây chỉ liên quan đến việc dùng đầu ra của AI)
-- Điều khoản thương mại của Anthropic (mục D.4) **không cho dùng dịch vụ để huấn luyện mô hình AI cạnh tranh** nếu chưa được chấp thuận.
-- Vì vậy `finetune` mặc định **chỉ xuất cặp câu do người dịch/duyệt**: bản dịch sách đã xuất bản (nhập TMX) và đoạn sửa tay.
-- Chỉ bật `--include-machine` (gồm cả bản dịch do Claude chứng nhận) sau khi pháp chế hoặc Anthropic xác nhận.
-- Bản quyền văn bản sách dùng làm dữ liệu huấn luyện cũng cần được hợp đồng cho phép.
+**Nguồn dữ liệu huấn luyện**
+- Mặc định `finetune` xuất **cặp câu do người dịch/duyệt** (TMX sách đã xuất bản, đoạn sửa tay). Đây là dữ liệu tốt nhất để model học văn phong nhà xuất bản.
+- Thêm `--include-machine` để gồm cả **bản dịch máy đã chứng nhận** (đạt cổng MQM và kiểm toán trung thành). Chủ sở hữu tự cân nhắc điều khoản nhà cung cấp API (Anthropic Commercial Terms, mục D.4).
 
 ## 3. Hai phương án triển khai (cùng một giao diện và quy trình MedTrans)
 
