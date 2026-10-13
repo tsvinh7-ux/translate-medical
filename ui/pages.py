@@ -442,6 +442,7 @@ def _queue_live():
                 res = state.result_of(j)
                 for k, label, mime in (("output_pdf", "PDF tiếng Việt", "application/pdf"),
                                        ("report", "Báo cáo", "text/html"),
+                                       ("certificate", "Phiếu kiểm định", "text/html"),
                                        ("termbase_xlsx", "Termbase (Excel)",
                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")):
                     if res.get(k) and Path(res[k]).exists():
@@ -449,6 +450,14 @@ def _queue_live():
                                            mime=mime, key=f"d{k}{j['id']}")
                 if j["status"] == "awaiting_termbase":
                     st.caption("→ Kiểm tra & khoá ở mục **Termbase dự án**")
+            rel = res.get("release") if j["status"] == "done" else None
+            if rel:
+                cls = {"release": "good", "hold": "bad", "draft": "warn"}.get(rel["verdict"], "neutral")
+                icon = {"release": "✓", "hold": "!", "draft": "✎"}.get(rel["verdict"], "•")
+                st.markdown(f"<span class='pill {cls}'>{icon} {esc(rel['label'])}</span> "
+                            f"<span class='muted'>· qua cổng {rel['pass_percent']}% · hiển thị trên PDF "
+                            f"{rel['rendered_percent']}% · văn dịch máy "
+                            f"{rel['style']['style_flags_per_1000_words']}/1.000 từ</span>", unsafe_allow_html=True)
             if j["status"] == "done" and res.get("segments") is not None:
                 st.markdown(f"<span class='muted'>{res.get('segments')} đoạn · đạt chuẩn {res.get('certified', 0)} · "
                             f"MQM TB {res.get('avg_score', 0)} · còn lỗi nặng {res.get('needs_review', 0)} · "
@@ -630,9 +639,78 @@ def review_page():
                 db.tm_add(s["src"], new, j["domain"], doc_name=j["job_id"], role=s["role"], quality=100,
                           approved=True, origin="human")
                 st.toast("Đã lưu vào bộ nhớ dịch (đã duyệt).")
-    if st.button("🔁 Dựng lại PDF từ dữ liệu hiện tại", type="primary"):
+    if st.button("🔁 Dựng lại PDF & phiếu kiểm định từ dữ liệu hiện tại", type="primary"):
         qid = state.queue().submit(j["pdf_path"], j["domain"], cfg.get("default_profile", "premium"))
         st.success(f"Đã đưa vào hàng đợi #{qid} – các đoạn đã có sẽ được dùng lại, không dịch lại.")
+    _lqa_panel(cfg, db, j)
+
+
+def _lqa_panel(cfg, db, j) -> None:
+    """Kiểm định mẫu bởi chuyên gia & thử nghiệm mù người – máy."""
+    from medtrans import lqa
+    st.subheader("Kiểm định độc lập bởi chuyên gia")
+    st.markdown("<div class='muted'>Chuyên gia chỉ đọc một <b>mẫu ngẫu nhiên</b> thay vì cả cuốn. Không phát hiện lỗi "
+                "nặng trong mẫu ⇒ với độ tin cậy đã chọn, tỉ lệ đoạn lỗi nặng của <b>toàn bộ</b> bản dịch không vượt "
+                "ngưỡng. Bản sửa của chuyên gia được áp vào bản dịch và bộ nhớ dịch.</div>", unsafe_allow_html=True)
+    out_dir = cfg.resolve("workspace/lqa")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(j["pdf_path"]).stem
+    t1, t2 = st.tabs(["Kiểm định mẫu", "Thử nghiệm mù người – máy"])
+    with t1:
+        c1, c2, c3 = st.columns(3)
+        conf = c1.select_slider("Độ tin cậy", [0.90, 0.95, 0.99], value=0.95, format_func=lambda x: f"{x:.0%}",
+                                key="lqa_conf")
+        rate = c2.select_slider("Ngưỡng lỗi nặng tối đa", [0.01, 0.02, 0.03, 0.05], value=0.03,
+                                format_func=lambda x: f"{x:.0%}", key="lqa_rate")
+        n = lqa.sample_size(conf, rate)
+        c3.metric("Số đoạn chuyên gia cần đọc", fmt_int(n))
+        if st.button("📤 Xuất mẫu kiểm định (Excel)", key="lqa_exp"):
+            r = lqa.export_sample(db, j["job_id"], out_dir / f"{stem}_kiem_dinh_mau.xlsx", n, conf, rate)
+            st.session_state["lqa_file"] = r["file"]
+        f = st.session_state.get("lqa_file")
+        if f and Path(f).exists():
+            st.download_button("⬇ Tải file mẫu gửi chuyên gia", Path(f).read_bytes(), file_name=Path(f).name,
+                               key="lqa_dl")
+        up = st.file_uploader("Nhập file chuyên gia đã chấm", type=["xlsx"], key="lqa_up")
+        if up and st.button("📥 Nhập kết quả", key="lqa_imp"):
+            tmp = out_dir / f"_in_{up.name}"
+            tmp.write_bytes(up.getbuffer())
+            r = lqa.import_sample(db, j["job_id"], tmp, max_rate=rate, domain=j["domain"])
+            kpis([("Đoạn đã chấm", fmt_int(r["n"])), ("Lỗi nặng", fmt_int(r["defects"])),
+                  ("Lỗi nhỏ", fmt_int(r["minor"])), ("Trần tỉ lệ lỗi (95%)", f"{r['upper_percent']}%"),
+                  ("Kết luận", "ĐẠT" if r["passed"] else "CHƯA ĐẠT"), ("Bản sửa đã áp", fmt_int(r["fixed"]))])
+            st.caption("Dựng lại PDF để phiếu kiểm định cập nhật kết quả kiểm định mẫu.")
+        last = lqa.latest(db, j["job_id"])
+        if last:
+            st.markdown(f"Lần kiểm định gần nhất: {pill('certified' if last['passed'] else 'needs_review')} "
+                        f"<span class='muted'>{last['defects']} lỗi nặng / {last['n']} đoạn · trần "
+                        f"{last['upper_percent']}%</span>", unsafe_allow_html=True)
+    with t2:
+        st.markdown("<div class='muted'>Dùng các đoạn đã có <b>bản dịch người</b> (nhập TMX sách đã xuất bản). Hệ thống "
+                    "trộn bản người và bản máy, ẩn nguồn gốc; chuyên gia chấm như nhau; sau đó mở khoá để so sánh."
+                    "</div>", unsafe_allow_html=True)
+        if st.button("📤 Xuất bộ thử nghiệm mù", key="blind_exp"):
+            r = lqa.export_blind(db, j["job_id"], out_dir / f"{stem}_thu_nghiem_mu.xlsx")
+            if not r["pairs"]:
+                st.warning("Chưa có đoạn nào có bản dịch người trong bộ nhớ dịch – nhập TMX trước.")
+            st.session_state["blind"] = r
+        r = st.session_state.get("blind")
+        if r and r.get("pairs"):
+            st.download_button("⬇ File gửi chuyên gia", Path(r["file"]).read_bytes(), file_name=Path(r["file"]).name,
+                               key="blind_dl")
+            st.caption(f"Khoá giải mã lưu riêng tại {r['key']} – không gửi cho người chấm.")
+        upb = st.file_uploader("Nhập file thử nghiệm mù đã chấm", type=["xlsx"], key="blind_up")
+        if upb and r and st.button("🔓 Mở khoá & so sánh", key="blind_imp"):
+            tmp = out_dir / f"_in_{upb.name}"
+            tmp.write_bytes(upb.getbuffer())
+            res = lqa.import_blind(db, tmp, r["key"])
+            pd_rows = [{"Nguồn": "Người", **{k: res["human"][k] for k in ("n", "ok_percent", "severe_percent", "score")}},
+                       {"Nguồn": "Máy (MedTrans)", **{k: res["ai"][k] for k in ("n", "ok_percent", "severe_percent",
+                                                                               "score")}}]
+            st.dataframe(pd.DataFrame(pd_rows).rename(columns={"n": "Đoạn", "ok_percent": "% đạt",
+                                                               "severe_percent": "% lỗi nặng", "score": "Điểm"}),
+                         hide_index=True)
+            st.success(res["verdict"])
 
 
 # =====================================================================================  HIỆU CHUẨN
@@ -798,6 +876,19 @@ def settings_page():
         except Exception:  # noqa: BLE001
             st.markdown(f"{pill('cancelled')} **{label}** · `{url}` – chưa chạy (xem docs/CHAY_LOCAL.md)",
                         unsafe_allow_html=True)
+    st.subheader("Nhà cung cấp AI & dự phòng")
+    prov = cfg.get_path("llm.providers", {}) or {}
+    chain = cfg.get_path("llm.failover", []) or []
+    st.markdown(f"<div class='muted'>Chính: <b>{esc(cfg.get_path('llm.provider'))}</b> · Dự phòng: "
+                f"<b>{esc(' → '.join(chain) if chain else 'tắt (chạy 1 mô thức chuẩn)')}</b>. Mọi kết quả, dù từ nhà cung "
+                "cấp nào, đều qua cùng cổng kiểm tra máy + giám khảo + kiểm toán trung thành.</div>",
+                unsafe_allow_html=True)
+    if prov:
+        st.dataframe(pd.DataFrame([{"Nhà cung cấp": n, "Model": c.get("model") or "— (chưa điền)",
+                                    "Khoá API": "Đã có" if os.environ.get(c.get("api_key_env") or "") else "Chưa có",
+                                    "Giá USD/1M token": " / ".join(map(str, c.get("price_per_mtok") or [])) or "—"}
+                                   for n, c in prov.items()]), hide_index=True, width="stretch")
+    st.caption("Bật dự phòng: llm.failover trong config.yaml · Kiểm tra: python -m medtrans providers")
     st.subheader("Quy ước văn phong theo chuyên ngành")
     dn = st.text_input("Chuyên ngành", cfg.get_path("translation.domain"), key="dn_dom")
     notes = st.text_area("Quy ước", db.domain_notes(dn), height=160)

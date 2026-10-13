@@ -65,6 +65,16 @@ class Usage:
                 "web_searches": self.web_searches, "estimated_cost_usd": self.cost(model)}
 
 
+@dataclass
+class PricedUsage(Usage):
+    """Thống kê cho nhà cung cấp khác (OpenAI, Gemini…) – giá khai báo trong cấu hình (USD / 1 triệu token)."""
+    price_in: float = 0.0
+    price_out: float = 0.0
+
+    def cost(self, model: str) -> float:
+        return round((self.input_tokens * self.price_in + self.output_tokens * self.price_out) / 1e6, 4)
+
+
 def extract_json(text: str) -> Any:
     """Lấy JSON từ văn bản (chịu được ```json ... ``` hoặc <json>...</json>)."""
     m = re.search(r"<json>(.*?)</json>", text, re.S) or re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
@@ -252,9 +262,15 @@ def _backend(name: str, cfg: dict):
     from .llm_local import MedCrabLLM, OpenAICompatLLM
     if name == "local" or (name.startswith("local_") and name in cfg):  # vd local_judge: model local thứ hai
         return OpenAICompatLLM(cfg.get(name, {}))
+    providers = cfg.get("providers") or {}
+    if name in providers:  # nhà cung cấp dự phòng qua API chuẩn OpenAI (OpenAI, Gemini, DeepSeek, máy chủ riêng…)
+        if not providers[name].get("model"):
+            raise ValueError(f"Chưa điền model cho nhà cung cấp '{name}' (llm.providers.{name}.model)")
+        return OpenAICompatLLM({"trust_env": True, "json_mode": "json_schema", **providers[name], "name": name})
     if name == "medcrab":
         return MedCrabLLM(cfg.get("medcrab", {}))
-    raise ValueError(f"Không biết nhà cung cấp model '{name}' (anthropic | local | local_judge | medcrab | mock)")
+    raise ValueError(f"Không biết nhà cung cấp model '{name}' (anthropic | local | local_judge | medcrab | mock | "
+                     f"nhà cung cấp trong llm.providers: {', '.join(providers) or 'chưa khai báo'})")
 
 
 def make_llm(cfg: dict):
@@ -266,7 +282,13 @@ def make_llm(cfg: dict):
     if provider == "mock":  # chế độ thử: mọi công đoạn giả lập
         return MockLLM(cfg)
     if not routes:
-        return _backend(provider, cfg)
-    from .llm_local import RoutedLLM
-    names = {provider, *routes.values()}
-    return RoutedLLM({n: _backend(n, cfg) for n in names}, routes, provider)
+        primary = _backend(provider, cfg)
+    else:
+        from .llm_local import RoutedLLM
+        names = {provider, *routes.values()}
+        primary = RoutedLLM({n: _backend(n, cfg) for n in names}, routes, provider)
+    chain = [n for n in (cfg.get("failover") or []) if n and n != provider]
+    if not chain:
+        return primary
+    from .llm_local import FailoverLLM  # DỰ PHÒNG: nhà cung cấp chính lỗi / quá tải → tự chuyển sang nhà cung cấp kế
+    return FailoverLLM([primary] + [_backend(n, cfg) for n in chain])

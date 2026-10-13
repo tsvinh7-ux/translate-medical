@@ -175,6 +175,45 @@ def cmd_finetune(cfg, args) -> None:
                                   min_quality=args.min_quality), ensure_ascii=False, indent=2))
 
 
+def cmd_providers(cfg, args) -> None:
+    """Kiểm tra các nhà cung cấp AI dự phòng: khoá API, model, kết nối."""
+    import os
+    import httpx2
+    prov = cfg.get_path("llm.providers", {}) or {}
+    print(f"Nhà cung cấp chính: {cfg.get_path('llm.provider')} · dự phòng: {cfg.get_path('llm.failover') or 'tắt'}")
+    for name, c in prov.items():
+        key = os.environ.get(c.get("api_key_env") or "", "")
+        state = "chưa có khoá" if not key else ("chưa điền model" if not c.get("model") else "")
+        if not state:
+            try:
+                r = httpx2.get(c["base_url"].rstrip("/") + "/models", headers={"Authorization": f"Bearer {key}"},
+                               timeout=10)
+                state = "kết nối được" if r.status_code < 400 else f"HTTP {r.status_code}"
+            except Exception as e:  # noqa: BLE001
+                state = f"lỗi kết nối ({e.__class__.__name__})"
+        print(f"  [{name}] model={c.get('model') or '—'} · {state}")
+
+
+def cmd_lqa(cfg, args) -> None:
+    from . import lqa
+    from .translator import job_id_for, pdf_hash_of
+    db = _db(cfg)
+    job = job_id_for(pdf_hash_of(args.pdf), args.domain or cfg.get_path("translation.domain"), "en")
+    if args.action == "sample":
+        out = args.file or str(Path(args.pdf).with_name(Path(args.pdf).stem + "_kiem_dinh_mau.xlsx"))
+        print(json.dumps(lqa.export_sample(db, job, out, confidence=args.confidence, max_rate=args.max_rate),
+                         ensure_ascii=False, indent=2))
+    elif args.action == "blind":
+        out = args.file or str(Path(args.pdf).with_name(Path(args.pdf).stem + "_thu_nghiem_mu.xlsx"))
+        print(json.dumps(lqa.export_blind(db, job, out), ensure_ascii=False, indent=2))
+    elif args.action == "import":
+        print(json.dumps(lqa.import_sample(db, job, args.file, max_rate=args.max_rate,
+                                           domain=args.domain or cfg.get_path("translation.domain")),
+                         ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(lqa.import_blind(db, args.file, args.key), ensure_ascii=False, indent=2))
+
+
 def cmd_local_check(cfg, args) -> None:
     """Kiểm tra kết nối máy chủ model local & MedCrab."""
     import httpx2
@@ -302,6 +341,19 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--include-machine", action="store_true",
                    help="Gồm cả bản dịch máy đã chứng nhận (đạt cổng MQM + kiểm toán trung thành)")
     p.set_defaults(fn=cmd_finetune)
+
+    sub.add_parser("providers", help="Kiểm tra nhà cung cấp AI dự phòng (khoá API, model, kết nối)"
+                   ).set_defaults(fn=cmd_providers)
+
+    p = sub.add_parser("lqa", help="Kiểm định mẫu bởi chuyên gia: sample | import | blind | blind-import")
+    p.add_argument("action", choices=["sample", "import", "blind", "blind-import"])
+    p.add_argument("pdf", help="File PDF gốc của bản dịch cần kiểm định")
+    p.add_argument("--file", help="File Excel (xuất ra / nhập vào)")
+    p.add_argument("--key", help="File khoá giải mã thử nghiệm mù (.key.json)")
+    p.add_argument("--domain")
+    p.add_argument("--confidence", type=float, default=0.95)
+    p.add_argument("--max-rate", type=float, default=0.03, help="Ngưỡng tỉ lệ đoạn lỗi nặng tối đa (0,03 = 3%%)")
+    p.set_defaults(fn=cmd_lqa)
 
     sub.add_parser("local-check", help="Kiểm tra kết nối model local / MedCrab").set_defaults(fn=cmd_local_check)
 

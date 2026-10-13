@@ -38,6 +38,21 @@ llm:
     throughput_tokens_per_sec: 400
     # GIẤY PHÉP: CC BY-NC 4.0 – dùng cho mục đích thương mại phải có sự cho phép của tác giả
 
+  # ---------------- DỰ PHÒNG ĐA NHÀ CUNG CẤP (chuẩn bị giai đoạn kế tiếp – mặc định TẮT, bản hiện tại chạy 1 mô thức chuẩn)
+  failover: []                 # thứ tự dự phòng khi nhà cung cấp chính lỗi/quá tải, vd [openai, local]
+  providers:                   # mọi nhà cung cấp có API chuẩn OpenAI; khoá API đặt trong .env (api_key_env)
+    openai:
+      base_url: https://api.openai.com/v1
+      model: ""                # điền model hiện hành (vd dòng GPT mới nhất) trước khi dùng
+      api_key_env: OPENAI_API_KEY
+      price_per_mtok: [0, 0]   # giá USD / 1 triệu token (đầu vào, đầu ra) để dự toán chi phí
+    gemini:
+      base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+      model: ""
+      api_key_env: GEMINI_API_KEY
+      price_per_mtok: [0, 0]
+  # KIỂM TOÁN CHÉO KHÁC HÃNG (tuỳ chọn): routes: {fidelity: openai} → model hãng khác kiểm toán bản dịch của Claude
+
 escalation:                    # LEO THANG CÓ ĐIỀU KIỆN (dùng với model local): chỉ đoạn khó mới gọi API
   enabled: false
   backend: anthropic           # backend mạnh để sửa & kiểm định đoạn không qua cổng local
@@ -97,6 +112,12 @@ quality:                       # CHẾ ĐỘ KHẮT KHE – đánh giá chuẩn 
   term_min_confidence: 0.9     # độ tin cậy tối thiểu của giám khảo khi kiểm định thuật ngữ
   web_term_min_confidence: 0.9   # thuật ngữ tra web được tự duyệt khi đủ tin cậy...
   web_term_min_sources: 2        # ...và có ít nhất N nguồn (trong đó ≥1 nguồn uy tín)
+  # --- VĂN PHONG & CỔNG PHÁT HÀNH (bảo chứng chất lượng – xem docs/BAO_CHUNG_CHAT_LUONG.md)
+  style_check: true              # dò "văn dịch máy / văn AI" (data/style_vi.yaml) → chuyển bước biên tập sửa
+  style_max_per_1000_words: 6    # mật độ dấu hiệu văn dịch máy tối đa trong toàn văn
+  long_sentence_max_percent: 10  # % câu quá dài tối đa
+  release_min_pass_percent: 100  # % đoạn phải qua cổng chất lượng để PHÁT HÀNH ĐƯỢC
+  release_requires_lqa: false    # true = bắt buộc có kiểm định mẫu bởi chuyên gia mới phát hành
 
 proof:                         # ĐỌC MORAT bản dàn trang
   enabled: true
@@ -141,6 +162,7 @@ queue:
 output:
   dir: workspace/output
   bilingual_report: true       # xuất file HTML song ngữ để biên tập viên duyệt
+  certificate: true            # xuất PHIẾU KIỂM ĐỊNH chất lượng (<tên>_VI_QA.html): đủ – đúng – đọc tốt – kiểm định
 
 # ============================================================
 #  HỒ SƠ CHẤT LƯỢNG / CHI PHÍ – chọn khi tạo dự án.

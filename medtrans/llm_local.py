@@ -19,7 +19,9 @@ import threading
 import time
 from typing import Any
 
-from .llm import LLMError, Usage, extract_json
+import os
+
+from .llm import LLMError, PricedUsage, Usage, extract_json
 
 log = logging.getLogger("medtrans.local")
 TAGS = re.compile(r"</?(?:b|i|sup|sub)>")
@@ -47,14 +49,17 @@ class OpenAICompatLLM:
         self.base_url = cfg.get("base_url", "http://localhost:11434/v1").rstrip("/")
         self.model = cfg.get("model", "qwen3:32b")
         self.vision_model = cfg.get("vision_model") or (self.model if cfg.get("vision") else None)
-        self.api_key = cfg.get("api_key") or "local"
+        self.name = cfg.get("name", "local")
+        self.api_key = cfg.get("api_key") or os.environ.get(cfg.get("api_key_env") or "", "") or "local"
+        self.trust_env = bool(cfg.get("trust_env", False))   # máy chủ local: không qua proxy; nhà cung cấp cloud: có
         self.json_mode = cfg.get("json_mode", "json_schema")   # json_schema | json_object | ollama | none
         self.temperature = float(cfg.get("temperature", 0.1))
         self.max_tokens = int(cfg.get("max_tokens", 16000))
         self.timeout = float(cfg.get("timeout_seconds", 1800))
         self.retries = int(cfg.get("max_retries", 3))
         self.extra = cfg.get("extra_body") or {}
-        self.usage = Usage()
+        price = cfg.get("price_per_mtok")
+        self.usage = PricedUsage(price_in=float(price[0]), price_out=float(price[1])) if price else Usage()
         self._client = None
         self._lock = threading.Lock()
 
@@ -64,7 +69,7 @@ class OpenAICompatLLM:
             if self._client is None:
                 httpx = _http()
                 # máy chủ local: không đi qua proxy hệ thống
-                self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout, trust_env=False,
+                self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout, trust_env=self.trust_env,
                                             headers={"Authorization": f"Bearer {self.api_key}"})
             return self._client
 
@@ -86,7 +91,7 @@ class OpenAICompatLLM:
                 if r.status_code >= 500 or r.status_code == 429:
                     raise LLMError(f"HTTP {r.status_code}: {r.text[:300]}")
                 if r.status_code >= 400:
-                    raise LLMError(f"Máy chủ model local từ chối ({r.status_code}): {r.text[:500]}")
+                    raise LLMError(f"Máy chủ model '{self.name}' từ chối ({r.status_code}): {r.text[:500]}")
                 data = r.json()
                 u = data.get("usage") or {}
                 with self.usage.lock:
@@ -100,7 +105,7 @@ class OpenAICompatLLM:
                 if "từ chối" in str(e):
                     raise
             except Exception as e:  # noqa: BLE001 – lỗi kết nối
-                last = LLMError(f"Không kết nối được máy chủ model local {self.base_url}: {e}")
+                last = LLMError(f"Không kết nối được máy chủ model '{self.name}' {self.base_url}: {e}")
             time.sleep(min(30, 3 * (attempt + 1)))
         raise last or LLMError("Lỗi model local")
 
@@ -302,3 +307,47 @@ class _RoutedUsage(Usage):
 
     def cost(self, model: str) -> float:
         return round(sum(b.usage.cost(getattr(b, "model", "")) for b in self._backends), 4)
+
+
+class FailoverLLM:
+    """DỰ PHÒNG nhiều nhà cung cấp: gọi lần lượt theo thứ tự ưu tiên; nhà cung cấp lỗi / quá tải / bị từ chối →
+    chuyển sang nhà cung cấp kế tiếp cho LẦN GỌI ĐÓ (lần sau vẫn thử lại nhà cung cấp chính).
+    Mọi kết quả, dù từ nhà cung cấp nào, vẫn đi qua CÙNG cổng kiểm tra máy + giám khảo + kiểm toán trung thành."""
+
+    def __init__(self, chain: list[Any]):
+        self.chain = chain
+        self.model = getattr(chain[0], "model", "")
+        self.events: list[dict] = []
+        self._lock = threading.Lock()
+
+    @property
+    def usage(self) -> Usage:
+        return _RoutedUsage(self.chain)
+
+    def _run(self, method: str, kw: dict):
+        last = None
+        for i, b in enumerate(self.chain):
+            try:
+                out = getattr(b, method)(**kw)
+                if i:
+                    with self._lock:
+                        self.events.append({"task": kw.get("task", method), "used": getattr(b, "model", str(i)),
+                                            "error": str(last)[:200]})
+                return out
+            except Exception as e:  # noqa: BLE001 – lỗi nhà cung cấp: thử nhà cung cấp kế tiếp
+                last = e
+                log.warning("Nhà cung cấp %s lỗi ở %s (%s) → chuyển dự phòng", getattr(b, "model", i),
+                            kw.get("task", method), str(e)[:160])
+        raise LLMError(f"Mọi nhà cung cấp đều lỗi: {last}")
+
+    def json_call(self, **kw) -> dict:
+        return self._run("json_call", kw)
+
+    def research_call(self, **kw) -> str:
+        return self._run("research_call", kw)
+
+    def vision_json_call(self, **kw) -> dict:
+        return self._run("vision_json_call", kw)
+
+    def vision_multi_json_call(self, **kw) -> dict:
+        return self._run("vision_multi_json_call", kw)

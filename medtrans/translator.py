@@ -198,6 +198,9 @@ class Translator(PublishingStages):
         tcfg = self.cfg.get("translation", {})
         rules_text = self.rules.prompt_text(self.number_format, tcfg.get("drug_name_style", "duoc_thu"),
                                             tcfg.get("abbreviation_policy", "first_gloss"))
+        if self.cfg.get_path("quality.style_check", True):
+            from .style import house_rules_text
+            rules_text += "\n\n" + house_rules_text()
         self.system_translate = cached_system(self._p(P.TRANSLATOR_SYSTEM) + "\n\n" + rules_text,
                                               self._brief_text(brief))
         self.system_review = cached_system(self._p(P.REVIEW_SYSTEM) + "\n\n" + rules_text, self._brief_text(brief))
@@ -352,9 +355,49 @@ class Translator(PublishingStages):
             report_path = write_report(out_dir / f"{pdf_path.stem}_VI_report.html", pdf_path.name, units, summary,
                                        brief, list(self.decided.values()), self.proof_log,
                                        self.cfg.get("branding", {}))
+        # --- BẢO CHỨNG: đối soát toàn văn (đọc lại PDF đầu ra) → cổng phát hành → phiếu kiểm định
+        cert_path = None
+        try:
+            cert_path = self._assure(units, pages, summary, out_pdf, page_range, pdf_path, out_dir)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Không lập được phiếu kiểm định: %s", e)
         self.db.job_upsert(job_id, status="done", usage_json=usage)
-        self.progress(1.0, "Hoàn tất")
-        return {"output_pdf": str(out_pdf), "report": str(report_path) if report_path else None, **summary}
+        self.progress(1.0, "Hoàn tất – " + summary.get("release", {}).get("label", ""))
+        return {"output_pdf": str(out_pdf), "report": str(report_path) if report_path else None,
+                "certificate": str(cert_path) if cert_path else None, **summary}
+
+    def _assure(self, units, pages, summary, out_pdf, page_range, pdf_path, out_dir):
+        from . import lqa
+        from .assurance import evaluate_release, rendered_coverage, write_certificate
+        self.progress(0.98, "Bảo chứng: đối soát toàn văn với PDF đầu ra, xét cổng phát hành...")
+        blocks = self._compose_blocks(units)
+        block_pages = {b.id: b.page for u in units if u.kind == "text" for b in u.blocks}
+        coverage = rendered_coverage(out_pdf, blocks, block_pages, (page_range[0] - 1) if page_range else 0)
+        src_blocks = sum(1 for p in pages for b in p.blocks if not b.keep)
+        release = evaluate_release(units, summary, self.cfg, coverage, src_blocks, lqa.latest(self.db, self.job_id),
+                                   draft=self.is_draft)
+        summary["release"] = {"verdict": release["verdict"], "label": release["label"],
+                              "pass_percent": release["pass_percent"], "to_fix": len(release["to_fix"]),
+                              "rendered_percent": coverage["percent"], "style": release["style"],
+                              "checks": [{k: c[k] for k in ("group", "name", "ok", "value", "rule", "blocking")}
+                                         for c in release["checks"]]}
+        if not self.cfg.get_path("output.certificate", True):
+            return None
+        from .plans import friendly, is_plan, pipeline, plan_label
+        prof = self.profile
+        label = plan_label(prof) if is_plan(prof) else (self.cfg.get("profiles") or {}).get(prof, {}).get("label", prof)
+        local = self.cfg.get_path("llm.provider") in ("local", "medcrab")
+        models = [self.cfg.get_path("llm.local.model") if local else self.cfg.get_path("llm.model")]
+        if local and (self.cfg.get_path("llm.routes", {}) or {}).get("evaluate") == "local_judge":
+            models.append(self.cfg.get_path("llm.local_judge.model"))
+        if self.escalation_llm is not None or any(v == "anthropic" for v in
+                                                  (self.cfg.get_path("llm.routes", {}) or {}).values()):
+            models.append(self.cfg.get_path("llm.model"))
+        stem = out_pdf.stem
+        return write_certificate(out_dir / f"{stem}_QA.html", pdf_path.name, release, summary,
+                                 {"profile": label, "domain": self.domain, "models": " + ".join(dict.fromkeys(
+                                     friendly(m) for m in models if m)), "pipeline": pipeline(self.cfg)},
+                                 self.cfg.get("branding", {}))
 
     # ================================================================ brief
     def _brief(self, pages: list[PageInfo]) -> dict:
@@ -536,6 +579,9 @@ class Translator(PublishingStages):
         if u.tgt.count(PARA) != n_para:
             issues.append(Issue("warning", "paragraph_marker",
                                 f"Cần đúng {n_para} mã {PARA}, bản dịch có {u.tgt.count(PARA)}"))
+        if not self.is_draft and self.cfg.get_path("quality.style_check", True) and u.role != "header_footer":
+            from .style import segment_issues
+            issues.extend(segment_issues(u.tgt))  # văn phong: chuyển cho bước biên tập sửa, không chặn chứng nhận
         return issues
 
     def _process_batch(self, batch: list[Unit], all_units: list[Unit]) -> None:

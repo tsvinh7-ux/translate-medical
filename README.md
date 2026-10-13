@@ -26,6 +26,8 @@ Công cụ chạy **trên máy của bạn (localhost)** và gọi **Claude API*
 | ➕ | Quy trình xuất bản | Chuẩn bị thuật ngữ toàn văn → dịch → **hiệu đính chuyên môn** → **biên tập ngôn ngữ** → hội đồng giám khảo MQM → **biên tập toàn văn** → dàn trang → **đọc morat** (so ảnh trang) → sửa morat. Chi tiết trong [docs/QUY_TRINH_CHAT_LUONG.md](docs/QUY_TRINH_CHAT_LUONG.md) |
 | ➕ | PDF scan | Tự nhận diện trang scan, OCR theo đoạn văn, Claude sửa lỗi OCR, đi qua cùng quy trình chất lượng, giữ định dạng cơ bản |
 
+> **AI dịch có đúng, đủ, chuẩn như người không?** Xem [docs/BAO_CHUNG_CHAT_LUONG.md](docs/BAO_CHUNG_CHAT_LUONG.md): đối soát toàn văn đến tận PDF đầu ra, bộ dò văn dịch máy/văn AI, cổng phát hành và phiếu kiểm định, kiểm định mẫu thống kê bởi chuyên gia, thử nghiệm mù người – máy, dự phòng đa nhà cung cấp AI.
+>
 > **Chạy bằng API hay chạy LOCAL (Qwen, MedCrab…)?** Xem [docs/CHAY_LOCAL.md](docs/CHAY_LOCAL.md): đánh giá MedCrab, 2 phương án + phương án lai, phần cứng, tinh chỉnh. Mua/nâng cấp máy: [docs/PHAN_CUNG.md](docs/PHAN_CUNG.md).
 
 > **Trước khi triển khai, hãy đọc [docs/CHUAN_BI_TRIEN_KHAI.md](docs/CHUAN_BI_TRIEN_KHAI.md)**: những gì cần chuẩn bị và phê duyệt (API, máy, dữ liệu, thương hiệu), cách tính chi phí và thời gian dịch.
@@ -123,10 +125,15 @@ python -m medtrans glossary import tu_dien.xlsx --domain cardiology
 python -m medtrans glossary list --candidates                         # thuật ngữ đang tích luỹ bằng chứng
 python -m medtrans tm import ban_dich_cu.tmx --domain cardiology
 python -m medtrans tm export bo_nho.tmx
+python -m medtrans lqa sample sach.pdf                                # xuất mẫu ngẫu nhiên cho chuyên gia kiểm định
+python -m medtrans lqa import sach.pdf --file sach_kiem_dinh_mau.xlsx  # nhập kết quả → trần tỉ lệ lỗi, áp bản sửa
+python -m medtrans lqa blind sach.pdf                                 # thử nghiệm mù người – máy
+python -m medtrans providers                                          # kiểm tra nhà cung cấp AI dự phòng
 ```
 
 Kết quả nằm trong `workspace/output/`:
 - `<tên>_VI.pdf`: bản tiếng Việt giữ bố cục.
+- `<tên>_VI_QA.html`: **phiếu kiểm định chất lượng** gồm kết luận PHÁT HÀNH ĐƯỢC / CẦN XỬ LÝ, các tiêu chí Đủ – Đúng – Đọc tốt – Kiểm định và chỗ ký.
 - `<tên>_VI_report.html`: báo cáo song ngữ gồm điểm MQM và trạng thái từng đoạn (đạt chuẩn / đạt / còn lỗi nặng), lỗi đã phát hiện, thuật ngữ tra cứu kèm nguồn, thống kê tự làm giàu.
 
 ## Chi phí và thời gian

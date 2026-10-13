@@ -1,0 +1,53 @@
+# ==========================================================================================
+#  VĂN PHONG TIẾNG VIỆT – quy tắc nhà xuất bản + bộ phát hiện "văn dịch máy / văn AI"
+#  - house_rules: đưa vào lời dặn cho dịch giả, hiệu đính, biên tập AI (sửa tự do theo nhà xuất bản)
+#  - patterns:   máy dò trong bản dịch → báo cho bước biên tập sửa, thống kê mật độ trong phiếu kiểm định
+#  Mỗi mẫu: id, regex (không phân biệt hoa thường), message (gợi ý sửa), min_count (số lần trong 1 đoạn mới báo)
+# ==========================================================================================
+
+house_rules:
+  - "Viết như chuyên gia y khoa Việt Nam viết sách: câu rõ chủ ngữ – vị ngữ, ưu tiên câu chủ động, đọc một lần là hiểu."
+  - "Không thêm lời dẫn, nhận xét, tóm tắt, câu chuyển ý hay từ nhấn mạnh không có trong bản gốc."
+  - "Tránh dịch từng chữ trạng từ -ly thành 'một cách + tính từ'; tránh bị động kiểu Anh 'được … bởi …'."
+  - "Không mở câu bằng 'Nó'; nêu lại chủ ngữ hoặc dùng 'thuốc này', 'bệnh này'…"
+  - "Câu dài trên ~50 từ: được tách thành 2 câu nếu không làm đổi nghĩa và trình tự ý."
+  - "Một khái niệm – một cách gọi trong toàn sách (theo termbase). Không thay từ đồng nghĩa để 'đỡ lặp'."
+  - "Dùng 'người bệnh' hoặc 'bệnh nhân' thống nhất theo quy ước chuyên ngành; mức khuyến cáo dịch đúng cấp độ (nên/có thể/không nên)."
+
+long_sentence_words: 50
+
+patterns:
+  - id: mot_cach
+    regex: '\bmột cách\s+[^\s,.;:]+'
+    message: "Lạm dụng 'một cách + tính từ' (dịch máy từ trạng từ -ly) – dùng trạng ngữ tự nhiên hoặc bỏ"
+    min_count: 2
+  - id: duoc_boi
+    regex: '\bđược\s+(?:[^\s,.;:]+\s+){1,6}?bởi\b'
+    message: "Bị động kiểu Anh 'được … bởi' – chuyển sang câu chủ động hoặc dùng 'do'"
+  - id: no_dau_cau
+    regex: '(?:^|[.!?]\s+)Nó\b'
+    message: "Mở câu bằng 'Nó' – nêu lại chủ ngữ cụ thể"
+  - id: dieu_nay
+    regex: '\bđiều này\b'
+    message: "Lặp 'điều này' – nêu rõ sự việc được nhắc đến"
+    min_count: 2
+  - id: cliche_vai_tro
+    regex: '\bđóng (?:một )?vai trò (?:rất |hết sức |vô cùng )?quan trọng'
+    message: "Sáo ngữ 'đóng vai trò quan trọng' – kiểm tra bản gốc có ý này không, diễn đạt cụ thể hơn"
+  - id: cliche_ai
+    regex: '\b(?:không thể phủ nhận|có thể nói rằng|điều đáng chú ý là|cần lưu ý rằng|nói một cách khác|trong thế giới (?:y học )?ngày nay)\b'
+    message: "Cụm từ đệm kiểu AI – kiểm tra bản gốc; bỏ nếu không có"
+  - id: thua_tu
+    regex: '\b(?:tiến hành thực hiện|thực hiện việc|có khả năng có thể|những các|các những|rất là)\b'
+    message: "Thừa từ / lặp nghĩa – rút gọn"
+  - id: chuoi_cua
+    regex: '\bcủa\b'
+    message: "Chuỗi 'của' dài trong một đoạn – tái cấu trúc cụm danh từ cho dễ đọc"
+    min_count: 5
+  - id: bi_dong_day
+    regex: '\b(?:được|bị)\s'
+    message: "Mật độ câu bị động 'được/bị' cao – ưu tiên câu chủ động"
+    min_count: 4
+  - id: dau_cau
+    regex: '\s[,.;:](?=\s|$)|\(\s|\s\)'
+    message: "Khoảng trắng sai trước dấu câu / trong ngoặc"
