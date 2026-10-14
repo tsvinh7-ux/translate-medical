@@ -231,6 +231,9 @@ class MockLLM:
             return {"paragraphs": p.get("paragraphs", [])}
         if task == "image_ocr":
             return {"lines": []}
+        if task == "style_learn":
+            return {"rules": [{"kind": "style", "rule": "Dịch 'patients with X' là 'người bệnh X'", "en": "", "vi": "",
+                               "support": len(p.get("edits", [])), "examples": []}] if p.get("edits") else []}
         return {}
 
     def research_call(self, *, system, user, max_uses=5, effort="high", payload=None) -> str:

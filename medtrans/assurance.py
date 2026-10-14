@@ -56,7 +56,7 @@ def _passed(u) -> bool:
 
 def evaluate_release(units: list, summary: dict, cfg, coverage: dict | None = None,
                      source_blocks: int | None = None, lqa: dict | None = None, draft: bool = False,
-                     unread_pages: list[int] | None = None) -> dict:
+                     unread_pages: list[int] | None = None, signoff: dict | None = None) -> dict:
     from .style import document_metrics
     q = cfg.get("quality", {}) if cfg else {}
     text = [u for u in units if u.kind == "text"]
@@ -118,16 +118,26 @@ def evaluate_release(units: list, summary: dict, cfg, coverage: dict | None = No
                           f"trần ≤ {lqa.get('max_rate_percent', 3)}%"))
     elif q.get("release_requires_lqa", False):
         checks.append(chk("Kiểm định", "Kiểm định mẫu bởi chuyên gia", False, "chưa thực hiện", "bắt buộc"))
+    expert = None
+    if q.get("release_requires_expert", True):
+        ok = bool(signoff and signoff.get("verdict") == "approve")
+        val = ("chưa duyệt" if not signoff else
+               f"{signoff['reviewer']} – {'đồng ý phát hành' if ok else 'yêu cầu sửa'} "
+               f"({time.strftime('%d/%m/%Y', time.localtime(signoff['created_at']))})")
+        expert = chk("Kiểm định", "Chuyên gia đọc duyệt & đồng ý phát hành", ok, val, "bắt buộc")
+        checks.append(expert)
     blockers = [c for c in checks if c["blocking"] and not c["ok"]]
     to_fix = sorted({i for c in blockers for i in c["ids"]})
     if draft:
         verdict, label = "draft", "BẢN NHÁP – không dùng để phát hành"
+    elif blockers == [expert] and not (signoff and signoff.get("verdict") == "reject"):
+        verdict, label = "await_expert", "MÁY ĐÃ ĐẠT – CHỜ CHUYÊN GIA ĐỌC DUYỆT & KÝ PHÁT HÀNH"
     elif blockers:
         verdict, label = "hold", f"CẦN XỬ LÝ – {len(to_fix)} đoạn / {len(blockers)} tiêu chí chưa đạt"
     else:
         verdict, label = "release", "PHÁT HÀNH ĐƯỢC"
     return {"verdict": verdict, "label": label, "checks": checks, "to_fix": to_fix, "style": style,
-            "pass_percent": round(pass_pct, 1), "lqa": lqa}
+            "pass_percent": round(pass_pct, 1), "lqa": lqa, "signoff": signoff}
 
 
 def write_certificate(path: Path, doc_name: str, release: dict, summary: dict, meta: dict,
@@ -151,7 +161,12 @@ def write_certificate(path: Path, doc_name: str, release: dict, summary: dict, m
     steps = "".join(f"<li>{html.escape(a)} <span class='who'>{html.escape(w)}</span></li>"
                     for a, w in meta.get("pipeline", []))
     fix = ", ".join(html.escape(i) for i in release.get("to_fix", [])[:60])
-    vcls = {"release": "ok", "hold": "bad", "draft": "warn"}[release["verdict"]]
+    vcls = {"release": "ok", "hold": "bad", "draft": "warn", "await_expert": "warn"}[release["verdict"]]
+    so = release.get("signoff")
+    signer = (f"<b>{html.escape(so['reviewer'])}</b> – {html.escape(so.get('role') or '')} · "
+              f"{'Đồng ý phát hành' if so['verdict'] == 'approve' else 'Yêu cầu sửa'} · "
+              f"{time.strftime('%d/%m/%Y', time.localtime(so['created_at']))}"
+              + (f"<br>{html.escape(so['note'])}" if so.get("note") else "") if so else "")
     page = f"""<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Phiếu kiểm định – {html.escape(doc_name)}</title>
 <style>
 body{{font-family:'Be Vietnam Pro','Segoe UI',Arial,sans-serif;color:#1f2328;max-width:960px;margin:28px auto;padding:0 20px}}
@@ -188,7 +203,7 @@ td.ok{{color:#1a7f37}} td.bad{{color:#c62828}} td.warn{{color:#9a6700}} td.v{{fo
 <ul>{top}</ul>
 <h3>Quy trình đã thực hiện</h3><ol>{steps}</ol>
 {f"<h3>Đoạn cần xử lý</h3><p class='meta'>{fix}{' …' if len(release.get('to_fix', [])) > 60 else ''} – xem báo cáo song ngữ / mục Duyệt.</p>" if fix else ""}
-<div class="sign"><div>Người kiểm định chuyên môn (ký, ghi rõ họ tên)</div><div>Biên tập viên phụ trách (ký, ghi rõ họ tên)</div></div>
+<div class="sign"><div>Người kiểm định chuyên môn (ký, ghi rõ họ tên)<br>{signer}</div><div>Biên tập viên phụ trách (ký, ghi rõ họ tên)</div></div>
 </body></html>"""
     path.write_text(page, encoding="utf-8")
     return path

@@ -201,8 +201,15 @@ def new_project():
         c1, c2, c3 = st.columns(3)
         lang = c1.selectbox("Ngôn ngữ nguồn → tiếng Việt", list(LANGS),
                             format_func=lambda c: f"{LANGS[c].name_vi.capitalize()} ({c})")
-        domain = c2.text_input("Chuyên ngành", cfg.get_path("translation.domain", "general_medicine"),
-                               help="cardiology, oncology, pharmacology... Kho thuật ngữ & bộ nhớ dịch lưu theo chuyên ngành")
+        from medtrans.domains import packs, resolve
+        dkeys = list(packs()) + ["__other__"]
+        d0 = resolve(cfg.get_path("translation.domain"))
+        dsel = c2.selectbox("Chuyên ngành", dkeys, index=dkeys.index(d0) if d0 in dkeys else 0,
+                            format_func=lambda k: "Khác (nhập tên)…" if k == "__other__" else packs()[k]["name_vi"],
+                            help="Mỗi chuyên ngành có gói riêng: thuật ngữ, quy ước văn phong, điểm giám khảo soát kỹ, "
+                                 "quy tắc học từ chuyên gia. Thêm gói: data/domains/<tên>.yaml")
+        domain = (c2.text_input("Tên chuyên ngành", placeholder="vd pediatrics, nhi khoa") if dsel == "__other__"
+                  else dsel)
         pages_txt = c3.text_input("Phạm vi trang (để trống = toàn bộ)", placeholder="ví dụ 1-50")
     pr = _parse_pages(pages_txt)
     if pr == "invalid":
@@ -458,8 +465,9 @@ def _queue_live():
                     st.caption("→ Kiểm tra & khoá ở mục **Termbase dự án**")
             rel = res.get("release") if j["status"] == "done" else None
             if rel:
-                cls = {"release": "good", "hold": "bad", "draft": "warn"}.get(rel["verdict"], "neutral")
-                icon = {"release": "✓", "hold": "!", "draft": "✎"}.get(rel["verdict"], "•")
+                cls = {"release": "good", "hold": "bad", "draft": "warn", "await_expert": "accent"}.get(
+                    rel["verdict"], "neutral")
+                icon = {"release": "✓", "hold": "!", "draft": "✎", "await_expert": "◆"}.get(rel["verdict"], "•")
                 st.markdown(f"<span class='pill {cls}'>{icon} {esc(rel['label'])}</span> "
                             f"<span class='muted'>· qua cổng {rel['pass_percent']}% · hiển thị trên PDF "
                             f"{rel['rendered_percent']}% · văn dịch máy "
@@ -644,27 +652,80 @@ def review_page():
                                 issues=[{"severity": "info", "code": "human", "message": "Đã duyệt tay"}])
                 db.tm_add(s["src"], new, j["domain"], doc_name=j["job_id"], role=s["role"], quality=100,
                           approved=True, origin="human")
+                from medtrans.learning import record_edit
+                record_edit(db, j["job_id"], s["seg_id"], j["domain"], s["src"], s["tgt"], new, "review")
                 st.toast("Đã lưu vào bộ nhớ dịch (đã duyệt).")
     if st.button("🔁 Dựng lại PDF & phiếu kiểm định từ dữ liệu hiện tại", type="primary"):
-        last = db.query("SELECT profile FROM queue WHERE pdf_path=? AND domain=? AND mode='translate' "
-                        "ORDER BY id DESC LIMIT 1", (j["pdf_path"], j["domain"]))
-        qid = state.queue().submit(j["pdf_path"], j["domain"],
-                                   last[0]["profile"] if last else cfg.get("default_profile", "premium"))
-        st.success(f"Đã đưa vào hàng đợi #{qid} – các đoạn đã có sẽ được dùng lại, không dịch lại.")
+        _rebuild(cfg, db, j)
     _lqa_panel(cfg, db, j)
+
+
+def _rebuild(cfg, db, j) -> None:
+    """Dựng lại PDF + phiếu kiểm định bằng đúng gói đã dùng (đoạn đã có được dùng lại, không dịch lại)."""
+    last = db.query("SELECT profile FROM queue WHERE pdf_path=? AND mode='translate' ORDER BY id DESC LIMIT 1",
+                    (j["pdf_path"],))
+    qid = state.queue().submit(j["pdf_path"], j["domain"],
+                               last[0]["profile"] if last else cfg.get("default_profile", "premium"))
+    st.success(f"Đã đưa vào hàng đợi #{qid} – các đoạn đã có được dùng lại, không dịch lại.")
 
 
 def _lqa_panel(cfg, db, j) -> None:
     """Kiểm định mẫu bởi chuyên gia & thử nghiệm mù người – máy."""
     from medtrans import lqa
     st.subheader("Kiểm định độc lập bởi chuyên gia")
-    st.markdown("<div class='muted'>Chuyên gia chỉ đọc một <b>mẫu ngẫu nhiên</b> thay vì cả cuốn. Không phát hiện lỗi "
-                "nặng trong mẫu ⇒ với độ tin cậy đã chọn, tỉ lệ đoạn lỗi nặng của <b>toàn bộ</b> bản dịch không vượt "
-                "ngưỡng. Bản sửa của chuyên gia được áp vào bản dịch và bộ nhớ dịch.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='muted'><b>Duyệt toàn văn</b>: chuyên gia đọc cả bản dịch song ngữ, sửa và ký kết luận trước "
+                "khi chuyển thiết kế (bắt buộc theo mặc định). <b>Kiểm định mẫu</b>: đo chất lượng bằng mẫu ngẫu nhiên "
+                "có độ tin cậy thống kê. <b>Thử nghiệm mù</b>: so bản máy với bản người. Mọi bản sửa đều được áp vào bản "
+                "dịch, bộ nhớ dịch và dữ liệu học văn phong.</div>", unsafe_allow_html=True)
     out_dir = cfg.resolve("workspace/lqa")
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(j["pdf_path"]).stem
-    t1, t2 = st.tabs(["Kiểm định mẫu", "Thử nghiệm mù người – máy"])
+    t0, t1, t2 = st.tabs(["Duyệt toàn văn & ký phát hành", "Kiểm định mẫu", "Thử nghiệm mù người – máy"])
+    with t0:
+        st.markdown("<div class='muted'>Quy trình: <b>①</b> xuất gói song ngữ theo thứ tự sách → <b>②</b> chuyên gia đọc, "
+                    "ghi bản sửa / nhận định → <b>③</b> nhập lại: bản sửa được áp vào bản dịch, bộ nhớ dịch và "
+                    "<b>dữ liệu học văn phong</b> → <b>④</b> chuyên gia ký kết luận → hệ thống dựng lại PDF và phiếu "
+                    "kiểm định có chữ ký → chuyển thiết kế.</div>", unsafe_allow_html=True)
+        c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
+        scope = c1.radio("Phạm vi gửi chuyên gia", ["all", "pending"], horizontal=True, key="rv_scope",
+                         format_func=lambda x: "Toàn văn (khuyến nghị)" if x == "all" else "Chỉ đoạn chưa đạt chuẩn")
+        if c2.button("📤 Xuất gói duyệt (Excel)", key="rv_exp", width="stretch"):
+            r = lqa.export_review(db, j["job_id"], out_dir / f"{stem}_duyet_chuyen_gia.xlsx", scope)
+            st.session_state["rv_file"] = r["file"]
+        f = st.session_state.get("rv_file")
+        if f and Path(f).exists():
+            st.download_button("⬇ Tải gói duyệt gửi chuyên gia", Path(f).read_bytes(), file_name=Path(f).name,
+                               key="rv_dl")
+        c1, c2 = st.columns([2, 1], vertical_alignment="bottom")
+        upr = c1.file_uploader("Nhập gói chuyên gia đã duyệt", type=["xlsx"], key="rv_up")
+        who = c2.text_input("Người duyệt", key="rv_who")
+        if upr and st.button("📥 Nhập & áp bản sửa", key="rv_imp"):
+            tmp = out_dir / f"_in_{upr.name}"
+            tmp.write_bytes(upr.getbuffer())
+            r = lqa.import_review(db, j["job_id"], tmp, domain=j["domain"], reviewer=who)
+            kpis([("Đoạn trong gói", fmt_int(r["n"])), ("Đoạn có sửa/nhận định", fmt_int(r["commented"])),
+                  ("Bản sửa đã áp", fmt_int(r["fixed"])), ("Lỗi nghiêm trọng", fmt_int(r["critical"])),
+                  ("Lỗi lớn", fmt_int(r["major"])), ("Lỗi nhỏ", fmt_int(r["minor"]))])
+        st.markdown("**Ký kết luận của chuyên gia**")
+        with st.form("signoff"):
+            a, b = st.columns(2)
+            name = a.text_input("Họ tên chuyên gia")
+            role = b.text_input("Vai trò", "Chuyên gia hiệu đính")
+            verdict = st.radio("Kết luận", ["approve", "reject"], horizontal=True,
+                               format_func=lambda v: "Đồng ý phát hành" if v == "approve" else "Yêu cầu sửa tiếp")
+            note = st.text_area("Nhận định chung", height=80)
+            if st.form_submit_button("✍️ Ký & dựng lại PDF + phiếu kiểm định", type="primary"):
+                if not name.strip():
+                    st.error("Cần họ tên chuyên gia.")
+                else:
+                    lqa.sign_off(db, j["job_id"], name, verdict, role, note)
+                    _rebuild(cfg, db, j)
+        so = lqa.latest_signoff(db, j["job_id"])
+        if so:
+            st.markdown(f"Đã ký: {pill('certified' if so['verdict'] == 'approve' else 'needs_review')} "
+                        f"<b>{esc(so['reviewer'])}</b> <span class='muted'>· {esc(so['role'])} · "
+                        f"{time.strftime('%d/%m/%Y %H:%M', time.localtime(so['created_at']))}</span>",
+                        unsafe_allow_html=True)
     with t1:
         c1, c2, c3 = st.columns(3)
         conf = c1.select_slider("Độ tin cậy", [0.90, 0.95, 0.99], value=0.95, format_func=lambda x: f"{x:.0%}",
@@ -720,6 +781,74 @@ def _lqa_panel(cfg, db, j) -> None:
                                                                "severe_percent": "% lỗi nặng", "score": "Điểm"}),
                          hide_index=True)
             st.success(res["verdict"])
+
+
+# =====================================================================================  CHUYÊN NGÀNH & VĂN PHONG
+def knowledge_page():
+    from medtrans import learning
+    from medtrans.domains import chain, packs
+    cfg, db = state.cfg(), state.db()
+    page_header("Chuyên ngành & văn phong",
+                "Gói chuyên ngành trên cùng một lõi · học văn phong từ bản sửa của chuyên gia")
+    rows = []
+    stats = {r["domain"]: r for r in learning.stats(db)}
+    for k, d in packs().items():
+        doms = chain(k)
+        rows.append({"Chuyên ngành": d.get("name_vi", k), "Mã": k, "Kế thừa": " → ".join(doms[1:]) or "—",
+                     "Thuật ngữ riêng": db.query("SELECT COUNT(*) n FROM glossary WHERE domain=? AND status='approved'",
+                                                 (k,))[0]["n"],
+                     "Bộ nhớ dịch": db.query("SELECT COUNT(*) n FROM tm WHERE domain=?", (k,))[0]["n"],
+                     "Bản sửa chuyên gia": stats.get(k, {}).get("edits", 0),
+                     "Quy tắc đã duyệt": stats.get(k, {}).get("rules_approved", 0)})
+    st.subheader("Gói chuyên ngành")
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.caption("Một lõi dịch chung cho mọi chuyên ngành; mỗi gói bổ sung thuật ngữ, quy ước văn phong, điểm giám khảo "
+               "soát kỹ và quy tắc học riêng. Chuyên ngành hẹp kế thừa dữ liệu chung. Thêm gói mới: sao chép "
+               "data/domains/dentistry.yaml, đổi tên và nội dung.")
+    with st.expander("Xem nội dung một gói"):
+        k = st.selectbox("Gói", list(packs()), format_func=lambda x: packs()[x].get("name_vi", x), key="kp_pick")
+        d = packs()[k]
+        st.markdown(f"**Quy ước văn phong**\n\n{d.get('style', '—')}\n\n**Điểm giám khảo soát kỹ**\n\n"
+                    f"{d.get('judge_focus', '—')}")
+        if d.get("terms"):
+            st.dataframe(pd.DataFrame(d["terms"]), hide_index=True, width="stretch")
+
+    st.subheader("Học văn phong từ bản sửa của chuyên gia")
+    st.markdown("<div class='muted'>Mọi chỉnh sửa của chuyên gia (mục Duyệt, kiểm định mẫu, duyệt toàn văn) được ghi lại. "
+                "AI phân tích các bản sửa, đề xuất <b>quy tắc lặp lại</b> (≥ 3 ví dụ) → bạn duyệt → quy tắc áp cho mọi bản "
+                "dịch sau của chuyên ngành; quy tắc thuật ngữ đi thẳng vào kho thuật ngữ. Ngoài ra, các câu NGƯỜI dịch "
+                "trong bộ nhớ dịch (TMX sách đã xuất bản) được dùng làm <b>văn phong mẫu</b> ngay từ cuốn đầu.</div>",
+                unsafe_allow_html=True)
+    keys = list(dict.fromkeys(list(packs()) + list(stats)))
+    dom = st.selectbox("Chuyên ngành", keys, format_func=lambda x: packs().get(x, {}).get("name_vi", x), key="kl_dom")
+    n_edits = sum(stats.get(d, {}).get("edits", 0) for d in chain(dom))
+    c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
+    c1.markdown(f"<b>{fmt_int(n_edits)}</b> bản sửa đã ghi nhận cho chuyên ngành này (kể cả chuyên ngành cha).",
+                unsafe_allow_html=True)
+    if c2.button("🧠 Phân tích & đề xuất quy tắc", disabled=n_edits == 0, width="stretch"):
+        from medtrans.llm import make_llm
+        with st.spinner("AI đang phân tích các bản sửa..."):
+            try:
+                new = learning.learn(db, make_llm(cfg.get("llm", {})), dom)
+                st.success(f"Đề xuất {len(new)} quy tắc mới – duyệt bên dưới.")
+            except Exception as e:  # noqa: BLE001
+                st.error(f"Không phân tích được: {e}")
+    for r in learning.rules(db, dom, "proposed"):
+        with st.container(border=True):
+            kind = {"style": "Văn phong", "term": "Thuật ngữ", "format": "Trình bày"}.get(r["kind"], r["kind"])
+            st.markdown(f"<span class='pill info'>{kind}</span> <b>{esc(r['rule'])}</b> "
+                        f"<span class='muted'>· {r['support']} ví dụ</span>", unsafe_allow_html=True)
+            for ex in r["examples"]:
+                st.markdown(f"<div class='muted'>trước: {esc(ex.get('before', ''))}<br>sau: "
+                            f"<b>{esc(ex.get('after', ''))}</b></div>", unsafe_allow_html=True)
+            a, b, _ = st.columns([1, 1, 4])
+            a.button("✓ Duyệt", key=f"ra{r['id']}", on_click=learning.decide, args=(db, r["id"], True))
+            b.button("✕ Bác", key=f"rr{r['id']}", on_click=learning.decide, args=(db, r["id"], False))
+    ap = learning.rules(db, dom, "approved")
+    if ap:
+        st.markdown("**Quy tắc đang áp dụng**")
+        st.dataframe(pd.DataFrame([{"Loại": r["kind"], "Quy tắc": r["rule"], "Ví dụ": r["support"]} for r in ap]),
+                     hide_index=True, width="stretch")
 
 
 # =====================================================================================  HIỆU CHUẨN

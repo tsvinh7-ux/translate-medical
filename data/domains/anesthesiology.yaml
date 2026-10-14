@@ -1,0 +1,31 @@
+key: anesthesiology
+name_vi: Gây mê hồi sức
+aliases: [anesthesia, anaesthesia, gay_me, gay_me_hoi_suc, gmhs]
+parents: [general_medicine]
+style: |
+  - Phân biệt "gây mê" (mất ý thức toàn thân) và "gây tê" (vùng/tại chỗ) – không dùng lẫn.
+  - Thang điểm, phân loại (ASA, Mallampati, Aldrete, Cormack–Lehane) giữ tên gốc; nhóm phân loại giữ ký hiệu (ASA III, Mallampati độ II).
+  - Liều tính theo cân nặng giữ nguyên đơn vị (mg/kg, µg/kg/phút); tốc độ truyền, nồng độ (MAC, %) giữ nguyên ký hiệu.
+judge_focus: |
+  - Liều, đơn vị, tốc độ truyền, đường dùng, thời điểm (khởi mê/duy trì/thoát mê), ngưỡng huyết động, chống chỉ định.
+  - Gây mê vs gây tê; tên thuốc giãn cơ, thuốc hóa giải; xử trí biến cố (đặt nội khí quản khó, sốc phản vệ, tăng thân nhiệt ác tính).
+terms:
+  - {en: general anesthesia, vi: gây mê toàn thân}
+  - {en: regional anesthesia, vi: gây tê vùng}
+  - {en: local anesthesia, vi: gây tê tại chỗ}
+  - {en: spinal anesthesia, vi: gây tê tủy sống}
+  - {en: epidural anesthesia, vi: gây tê ngoài màng cứng}
+  - {en: peripheral nerve block, vi: gây tê thần kinh ngoại vi}
+  - {en: induction of anesthesia, vi: khởi mê}
+  - {en: emergence from anesthesia, vi: thoát mê}
+  - {en: endotracheal intubation, vi: đặt nội khí quản}
+  - {en: difficult airway, vi: đường thở khó}
+  - {en: laryngeal mask airway, vi: mặt nạ thanh quản}
+  - {en: neuromuscular blocking agent, vi: thuốc giãn cơ}
+  - {en: rapid sequence induction, vi: khởi mê nhanh}
+  - {en: minimum alveolar concentration, vi: nồng độ phế nang tối thiểu}
+  - {en: malignant hyperthermia, vi: tăng thân nhiệt ác tính}
+  - {en: postoperative nausea and vomiting, vi: nôn và buồn nôn sau mổ}
+  - {en: post-anesthesia care unit, vi: phòng hồi tỉnh, note: "đơn vị chăm sóc sau gây mê"}
+  - {en: preoperative assessment, vi: khám tiền mê}
+  - {en: sedation, vi: an thần}

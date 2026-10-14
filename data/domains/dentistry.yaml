@@ -1,0 +1,35 @@
+key: dentistry
+name_vi: Nha khoa – Răng Hàm Mặt
+aliases: [dental, nha_khoa, rang_ham_mat, rhm, odontology]
+parents: [general_medicine]
+style: |
+  - Dùng thuật ngữ Răng Hàm Mặt Việt Nam; phân biệt nghĩa giải phẫu và phục hình (crown: "thân răng" khi giải phẫu, "mão răng/chụp răng" khi phục hình).
+  - Ký hiệu răng (FDI 11–48, Universal 1–32, Palmer) GIỮ NGUYÊN như bản gốc, không quy đổi hệ ký hiệu.
+  - Tên vật liệu, hệ thống implant, tên thương mại khí cụ giữ nguyên.
+judge_focus: |
+  - Đúng răng, đúng mặt răng (mesial/distal/buccal/lingual/occlusal), đúng hàm (trên/dưới), đúng phía (phải/trái).
+  - Thuật ngữ giải phẫu – phục hình không lẫn nhau; chỉ định/chống chỉ định thủ thuật, liều thuốc tê.
+terms:
+  - {en: dental caries, vi: sâu răng}
+  - {en: periodontitis, vi: viêm nha chu}
+  - {en: gingivitis, vi: viêm lợi, note: "còn gọi viêm nướu"}
+  - {en: pulpitis, vi: viêm tủy răng}
+  - {en: dental pulp, vi: tủy răng}
+  - {en: enamel, vi: men răng}
+  - {en: dentin, vi: ngà răng}
+  - {en: cementum, vi: xê măng răng}
+  - {en: root canal treatment, vi: điều trị tủy, note: "điều trị nội nha"}
+  - {en: endodontics, vi: nội nha}
+  - {en: orthodontics, vi: chỉnh nha}
+  - {en: prosthodontics, vi: phục hình răng}
+  - {en: periodontics, vi: nha chu học}
+  - {en: malocclusion, vi: lệch lạc khớp cắn}
+  - {en: occlusion, vi: khớp cắn}
+  - {en: dental implant, vi: implant nha khoa}
+  - {en: tooth extraction, vi: nhổ răng}
+  - {en: impacted tooth, vi: răng ngầm}
+  - {en: deciduous teeth, vi: răng sữa}
+  - {en: permanent teeth, vi: răng vĩnh viễn}
+  - {en: dental plaque, vi: mảng bám răng}
+  - {en: dental calculus, vi: cao răng}
+  - {en: temporomandibular joint, vi: khớp thái dương hàm}

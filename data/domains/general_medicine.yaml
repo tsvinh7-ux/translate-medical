@@ -1,0 +1,12 @@
+# GÓI CHUYÊN NGÀNH – nạp vào: thuật ngữ (kho chuẩn), quy ước văn phong, điểm giám khảo phải soát kỹ.
+# Thêm chuyên ngành mới: sao chép file này, đổi key/name_vi, điền nội dung (không cần sửa mã).
+key: general_medicine
+name_vi: Y học đại cương / Nội khoa
+aliases: [general, internal_medicine, noi_khoa, y_hoc]
+parents: []
+style: |
+  - Văn phong giáo trình y khoa Việt Nam: chính xác, khách quan, câu rõ chủ ngữ.
+  - Mức khuyến cáo dịch đúng cấp độ: "should" → "nên", "may/can be considered" → "có thể cân nhắc", "is not recommended" → "không khuyến cáo".
+judge_focus: |
+  - Liều, đường dùng, tần suất, chống chỉ định, phủ định, mức khuyến cáo, ngưỡng chẩn đoán.
+terms: []

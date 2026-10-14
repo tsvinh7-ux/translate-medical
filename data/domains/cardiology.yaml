@@ -1,0 +1,10 @@
+key: cardiology
+name_vi: Tim mạch
+aliases: [cardio, tim_mach]
+parents: [general_medicine]
+style: |
+  - Phân loại, thang điểm (NYHA, Killip, CHA2DS2-VASc, HAS-BLED) giữ tên gốc; độ/giai đoạn ghi theo bản gốc.
+  - Chỉ số huyết động, điện tim (ST, QT, QRS) giữ ký hiệu; "phân suất tống máu" viết tắt EF/LVEF giữ nguyên.
+judge_focus: |
+  - Ngưỡng chẩn đoán (huyết áp, EF, troponin), liều thuốc chống đông/chống kết tập, chỉ định can thiệp, mức khuyến cáo (Class/Level).
+terms: []

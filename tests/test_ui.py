@@ -18,7 +18,7 @@ def _env(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("page", ["tong-quan", "du-an-moi", "hang-doi", "phan-tich", "termbase", "duyet",
-                                  "hieu-chuan", "thuat-ngu", "bo-nho-dich", "cau-hinh"])
+                                  "hieu-chuan", "thuat-ngu", "bo-nho-dich", "chuyen-nganh", "cau-hinh"])
 def test_every_page_renders(page):
     at = AppTest.from_file(str(ROOT / "app.py"), default_timeout=60)
     at.run()
@@ -26,7 +26,7 @@ def test_every_page_renders(page):
     import ui.pages as pages
     fn = {"tong-quan": pages.dashboard, "du-an-moi": pages.new_project, "hang-doi": pages.queue_page,
           "phan-tich": pages.analytics, "termbase": pages.termbase_page, "duyet": pages.review_page,
-          "hieu-chuan": pages.calibration_page, "thuat-ngu": pages.glossary_page, "bo-nho-dich": pages.tm_page,
+          "hieu-chuan": pages.calibration_page, "thuat-ngu": pages.glossary_page, "bo-nho-dich": pages.tm_page, "chuyen-nganh": pages.knowledge_page,
           "cau-hinh": pages.settings_page}[page]
     script = f"""
 import streamlit as st

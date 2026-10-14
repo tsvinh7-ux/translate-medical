@@ -28,6 +28,8 @@ Công cụ chạy **trên máy của bạn (localhost)** và gọi **Claude API*
 
 > **AI dịch có đúng, đủ, chuẩn như người không?** Xem [docs/BAO_CHUNG_CHAT_LUONG.md](docs/BAO_CHUNG_CHAT_LUONG.md): đối soát toàn văn đến tận PDF đầu ra, bộ dò văn dịch máy/văn AI, cổng phát hành và phiếu kiểm định, kiểm định mẫu thống kê bởi chuyên gia, thử nghiệm mù người – máy, dự phòng đa nhà cung cấp AI.
 >
+> **Chuyên ngành (nha khoa, gây mê…), học văn phong từ chuyên gia, quy trình duyệt & ký phát hành:** xem [docs/CHUYEN_NGANH_VA_VAN_PHONG.md](docs/CHUYEN_NGANH_VA_VAN_PHONG.md).
+>
 > **Chạy bằng API hay chạy LOCAL (Qwen, MedCrab…)?** Xem [docs/CHAY_LOCAL.md](docs/CHAY_LOCAL.md): đánh giá MedCrab, 2 phương án + phương án lai, phần cứng, tinh chỉnh. Mua/nâng cấp máy: [docs/PHAN_CUNG.md](docs/PHAN_CUNG.md).
 
 > **Trước khi triển khai, hãy đọc [docs/CHUAN_BI_TRIEN_KHAI.md](docs/CHUAN_BI_TRIEN_KHAI.md)**: những gì cần chuẩn bị và phê duyệt (API, máy, dữ liệu, thương hiệu), cách tính chi phí và thời gian dịch.

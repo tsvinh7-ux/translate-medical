@@ -25,6 +25,9 @@ def db() -> Database:
     d = Database(c.resolve(c.get_path("memory.db_path", "workspace/medtrans.db")))
     if not d.query("SELECT 1 FROM glossary LIMIT 1"):
         import_file(d, ROOT / "data" / "glossary_seed.csv", overwrite=False)
+    if not d.query("SELECT 1 FROM glossary WHERE source='domain_pack' LIMIT 1"):
+        from medtrans.domains import seed_terms
+        seed_terms(d)
     return d
 
 

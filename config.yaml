@@ -118,6 +118,7 @@ quality:                       # CHẾ ĐỘ KHẮT KHE – đánh giá chuẩn 
   long_sentence_max_percent: 10  # % câu quá dài tối đa
   release_min_pass_percent: 100  # % đoạn phải qua cổng chất lượng để PHÁT HÀNH ĐƯỢC
   release_requires_lqa: false    # true = bắt buộc có kiểm định mẫu bởi chuyên gia mới phát hành
+  release_requires_expert: true  # chuyên gia đọc duyệt & ký "đồng ý phát hành" trước khi chuyển thiết kế
 
 proof:                         # ĐỌC MORAT bản dàn trang
   enabled: true

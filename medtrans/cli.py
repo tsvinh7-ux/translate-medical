@@ -20,7 +20,9 @@ def cmd_init(cfg, args) -> None:
     from .glossary import import_file
     db = _db(cfg)
     n = import_file(db, ROOT / "data" / "glossary_seed.csv", overwrite=False)
-    print(f"Đã khởi tạo CSDL tại {db.path} và nạp {n} thuật ngữ mẫu.")
+    from .domains import packs, seed_terms
+    m = seed_terms(db)
+    print(f"Đã khởi tạo CSDL tại {db.path}: {n} thuật ngữ mẫu + {m} thuật ngữ nền của {len(packs())} gói chuyên ngành.")
 
 
 def cmd_doctor(cfg, args) -> None:

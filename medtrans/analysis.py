@@ -54,8 +54,9 @@ def analyze(pdf_path: str | Path, cfg: Config, db: Database, domain: str | None 
 
     pdf_path = Path(pdf_path)
     lang = get_profile(cfg.get_path("translation.source_lang", "en"))
-    domain = domain or cfg.get_path("translation.domain", "general_medicine")
-    domains = list(dict.fromkeys([domain, "general_medicine"]))
+    from .domains import chain, resolve
+    domain = resolve(domain or cfg.get_path("translation.domain", "general_medicine"))
+    domains = chain(domain)
     page_numbers = set(range(page_range[0] - 1, page_range[1])) if page_range else None
     pages = extract(pdf_path, lang=lang, ocr_scans=False, page_numbers=page_numbers)
     doc = pymupdf.open(str(pdf_path))

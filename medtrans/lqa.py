@@ -78,7 +78,7 @@ def _plain(text: str, mapping_free: bool = True) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def _sheet(wb, rows: list[dict], title: str, blind: bool):
+def _sheet(wb, rows: list[dict], title: str, blind: bool, full: bool = False):
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.worksheet.datavalidation import DataValidation
     ws = wb.active
@@ -104,7 +104,11 @@ def _sheet(wb, rows: list[dict], title: str, blind: bool):
         dv.add(f"{col}2:{col}{last}")
     ws.freeze_panes = "D2"
     guide = wb.create_sheet("Hướng dẫn")
-    for line in [
+    for line in ([
+        "DUYỆT TOÀN VĂN: đọc lần lượt theo thứ tự sách. Đoạn đồng ý thì KHÔNG cần ghi gì.",
+        "Đoạn cần sửa: ghi bản sửa hoàn chỉnh vào cột I; chọn 'Lỗi' + mức lỗi + loại lỗi nếu là lỗi (để thống kê); "
+        "góp ý không phải lỗi thì chỉ ghi bản sửa / ghi chú.",
+    ] if full else []) + [
         "Đọc từng cặp Bản gốc – Bản dịch. Nếu bản dịch dùng được cho xuất bản mà không cần sửa → chọn 'Đạt'.",
         "Nếu có lỗi → chọn 'Lỗi', mức lỗi và loại lỗi; ghi bản sửa đề xuất (nếu có) vào cột I.",
         "nghiêm trọng: sai nghĩa chuyên môn có thể gây hiểu sai lâm sàng (liều, chỉ định, phủ định, số liệu…).",
@@ -184,6 +188,94 @@ def _read(path: str | Path) -> list[dict]:
     return out
 
 
+def _apply_fixes(db: Database, job_id: str, rows: list[dict], domain: str, source: str, reviewer: str = "") -> int:
+    """Áp bản sửa của chuyên gia vào bản dịch + bộ nhớ dịch (nguồn "người") + ghi nhận để HỌC VĂN PHONG."""
+    import re
+    from .learning import record_edit
+    segs = db.segments(job_id)
+    fixed = 0
+    for r in rows:
+        s = segs.get(r["code"])
+        if not s or not r["fix"]:
+            continue
+        codes = set(re.findall(r"⟦(?!¶)[^⟧]+⟧", s["src"]))
+        if any(c not in r["fix"] for c in codes):  # bản sửa làm mất mã công thức/ký hiệu → giữ làm góp ý
+            issues = s["issues"] + [{"severity": "warning", "code": source,
+                                     "message": f"Chuyên gia đề xuất (cần biên tập giữ mã {sorted(codes)}): {r['fix']}"}]
+            db.execute("UPDATE segments SET status='needs_review', issues_json=?, updated_at=? WHERE job_id=? AND seg_id=?",
+                       (json.dumps(issues, ensure_ascii=False), time.time(), job_id, r["code"]))
+            continue
+        fix = r["fix"]  # đoạn trải nhiều khối: bản sửa không có mốc ⟦¶⟧ → dàn trang chia theo tỉ lệ độ dài
+        keep = [i for i in s["issues"] if not i.get("auto") and i.get("severity") not in ("error", "warning", "style")]
+        issues = keep + [{"severity": "info", "code": source,
+                          "message": f"Chuyên gia sửa ({r['severity'] or 'góp ý'}){': ' + r['note'] if r['note'] else ''}"}]
+        db.execute("UPDATE segments SET tgt=?, status='certified', score=100, issues_json=?, updated_at=? "
+                   "WHERE job_id=? AND seg_id=?", (fix, json.dumps(issues, ensure_ascii=False), time.time(), job_id,
+                                                  r["code"]))
+        db.tm_add(s["src"], fix, domain, doc_name=job_id, role=s["role"], quality=100, approved=True, origin="human")
+        record_edit(db, job_id, r["code"], domain, s["src"], s["tgt"], fix, source, reviewer)
+        fixed += 1
+    return fixed
+
+
+def export_review(db: Database, job_id: str, path: str | Path, scope: str = "all") -> dict:
+    """GÓI DUYỆT CHUYÊN GIA toàn văn (song ngữ, theo đúng thứ tự sách): chuyên gia đọc, sửa trực tiếp cột "Bản sửa"."""
+    from openpyxl import Workbook
+    segs = sorted((s for s in db.segments(job_id).values() if s["kind"] == "text" and s["tgt"]),
+                  key=lambda s: (s["page"] or 0, s["seg_id"]))
+    if scope == "pending":
+        segs = [s for s in segs if s["status"] not in ("certified", "tm")]
+    data = [{"code": s["seg_id"], "page": (s["page"] or 0) + 1, "src": _plain(s["src"]), "tgt": _plain(s["tgt"])}
+            for s in segs]
+    wb = Workbook()
+    _sheet(wb, data, "Duyệt chuyên gia", blind=False, full=True)
+    path = Path(path)
+    wb.save(path)
+    return {"file": str(path), "n": len(data), "scope": scope}
+
+
+def import_review(db: Database, job_id: str, path: str | Path, domain: str = "general_medicine",
+                  reviewer: str = "") -> dict:
+    """Nhập gói duyệt toàn văn: áp mọi bản sửa, thống kê lỗi chuyên gia phát hiện (đoạn không ghi gì = đồng ý)."""
+    _ensure(db)
+    rows = _read(path)
+    touched = [r for r in rows if r["reviewed"] or r["fix"]]
+    fixed = _apply_fixes(db, job_id, touched, domain, "expert_review", reviewer)
+    sev = {k: sum(1 for r in touched if r["severity"] == k) for k in ("critical", "major", "minor")}
+    res = {"kind": "review", "n": len(rows), "commented": len(touched), "fixed": fixed, **sev, "reviewer": reviewer}
+    db.execute("INSERT INTO lqa (job_id, kind, n, defects, minor, upper_percent, max_rate_percent, passed, "
+               "details_json, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+               (job_id, "review", len(rows), sev["critical"] + sev["major"], sev["minor"], 0, 0, 1,
+                json.dumps(res, ensure_ascii=False), time.time()))
+    return res
+
+
+SIGNOFF = """CREATE TABLE IF NOT EXISTS signoff (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, job_id TEXT, reviewer TEXT, role TEXT, verdict TEXT, note TEXT,
+    created_at REAL)"""
+
+
+def sign_off(db: Database, job_id: str, reviewer: str, verdict: str, role: str = "Chuyên gia hiệu đính",
+             note: str = "") -> dict:
+    """Chuyên gia ký duyệt: verdict = approve (đồng ý phát hành) | reject (yêu cầu sửa)."""
+    with db._lock:
+        db.conn.execute(SIGNOFF)
+        db.conn.commit()
+    if verdict not in ("approve", "reject") or not reviewer.strip():
+        raise ValueError("Cần tên người duyệt và kết luận approve | reject")
+    db.execute("INSERT INTO signoff (job_id, reviewer, role, verdict, note, created_at) VALUES (?,?,?,?,?,?)",
+               (job_id, reviewer.strip(), role, verdict, note, time.time()))
+    return latest_signoff(db, job_id)
+
+
+def latest_signoff(db: Database, job_id: str) -> dict | None:
+    with db._lock:
+        db.conn.execute(SIGNOFF)
+        db.conn.commit()
+    rows = db.query("SELECT * FROM signoff WHERE job_id=? ORDER BY id DESC LIMIT 1", (job_id,))
+    return dict(rows[0]) if rows else None
+
+
 def import_sample(db: Database, job_id: str, path: str | Path, max_rate: float = 0.03,
                   apply_fixes: bool = True, domain: str = "general_medicine") -> dict:
     """Nhập kết quả chuyên gia → tỉ lệ lỗi + trần tin cậy 95% → ĐẠT / KHÔNG ĐẠT; áp bản sửa vào bản dịch & TM."""
@@ -194,31 +286,7 @@ def import_sample(db: Database, job_id: str, path: str | Path, max_rate: float =
     minor = sum(1 for r in rows if r["severity"] == "minor")
     upper = _wilson_upper(defects, n)
     passed = n >= sample_size(0.95, max_rate) and defects == 0 or (n > 0 and upper <= max_rate)
-    fixed = 0
-    if apply_fixes:
-        segs = db.segments(job_id)
-        for r in rows:
-            s = segs.get(r["code"])
-            if not s or not r["fix"]:
-                continue
-            import re
-            codes = set(re.findall(r"⟦(?!¶)[^⟧]+⟧", s["src"]))
-            if any(c not in r["fix"] for c in codes):  # bản sửa làm mất mã công thức/ký hiệu → giữ làm góp ý
-                issues = s["issues"] + [{"severity": "warning", "code": "lqa",
-                                         "message": f"Chuyên gia đề xuất (cần biên tập giữ mã {sorted(codes)}): "
-                                                    f"{r['fix']}"}]
-                db.execute("UPDATE segments SET status='needs_review', issues_json=?, updated_at=? "
-                           "WHERE job_id=? AND seg_id=?",
-                           (json.dumps(issues, ensure_ascii=False), time.time(), job_id, r["code"]))
-                continue
-            issues = s["issues"] + [{"severity": "info", "code": "lqa",
-                                     "message": f"Chuyên gia sửa ({r['severity'] or 'góp ý'}): {r['note']}"}]
-            db.execute("UPDATE segments SET tgt=?, status='certified', score=100, issues_json=?, updated_at=? "
-                       "WHERE job_id=? AND seg_id=?",
-                       (r["fix"], json.dumps(issues, ensure_ascii=False), time.time(), job_id, r["code"]))
-            db.tm_add(s["src"], r["fix"], domain, doc_name=job_id, role=s["role"], quality=100,
-                      approved=True, origin="human")
-            fixed += 1
+    fixed = _apply_fixes(db, job_id, rows, domain, "lqa") if apply_fixes else 0
     by_cat: dict[str, int] = {}
     for r in rows:
         if r["error"]:

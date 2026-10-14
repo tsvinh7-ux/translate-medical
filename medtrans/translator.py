@@ -126,9 +126,10 @@ class Translator(PublishingStages):
         """Công đoạn chuẩn bị (dùng chung cho quét thuật ngữ & dịch): phân tích, tổng quan, thuật ngữ toàn văn."""
         tcfg = self.cfg.get("translation", {})
         lcfg = self.cfg.get("layout", {})
-        domain = domain or tcfg.get("domain", "general_medicine")
+        from .domains import chain, resolve
+        domain = resolve(domain or tcfg.get("domain", "general_medicine"))  # "Nha khoa", "dental" → dentistry
         self.domain = domain
-        self.domains = list(dict.fromkeys([domain, "general_medicine"]))
+        self.domains = chain(domain)  # gói chuyên ngành → gói cha → general_medicine
         out_dir = Path(out_dir or self.cfg.resolve(self.cfg.get_path("output.dir", "workspace/output")))
         out_dir.mkdir(parents=True, exist_ok=True)
         pdf_hash = hashlib.sha1(pdf_path.read_bytes()).hexdigest()[:16]
@@ -201,14 +202,13 @@ class Translator(PublishingStages):
         if self.cfg.get_path("quality.style_check", True):
             from .style import house_rules_text
             rules_text += "\n\n" + house_rules_text()
-        self.system_translate = cached_system(self._p(P.TRANSLATOR_SYSTEM) + "\n\n" + rules_text,
-                                              self._brief_text(brief))
-        self.system_review = cached_system(self._p(P.REVIEW_SYSTEM) + "\n\n" + rules_text, self._brief_text(brief))
-        self.system_revise = cached_system(self._p(P.REVISE_SYSTEM) + "\n\n" + rules_text, self._brief_text(brief))
-        self.system_fidelity = cached_system(self._p(P.FIDELITY_SYSTEM) + "\n\n" + rules_text,
-                                             self._brief_text(brief))
+        bt = self._brief_text(brief)
+        self.system_translate = cached_system(self._p(P.TRANSLATOR_SYSTEM) + "\n\n" + rules_text, bt)
+        self.system_review = cached_system(self._p(P.REVIEW_SYSTEM) + "\n\n" + rules_text, bt)
+        self.system_revise = cached_system(self._p(P.REVISE_SYSTEM) + "\n\n" + rules_text, bt)
+        self.system_fidelity = cached_system(self._p(P.FIDELITY_SYSTEM) + "\n\n" + rules_text, bt)
         self.system_eval = {focus: cached_system(self._p(P.EVAL_SYSTEM) + P.JUDGE_FOCUS.get(focus, "") + "\n\n" +
-                                                 rules_text, self._brief_text(brief))
+                                                 rules_text, bt)
                             for focus in self._judges()}
 
     def _run_units(self, pdf_path: Path, out_dir: Path, page_range, pages, brief, units, t0) -> dict:
@@ -376,7 +376,8 @@ class Translator(PublishingStages):
         src_blocks = sum(1 for p in pages for b in p.blocks if not b.keep)
         unread = [p.number + 1 for p in pages if p.scanned and not p.blocks]  # trang scan không đọc được chữ
         release = evaluate_release(units, summary, self.cfg, coverage, src_blocks, lqa.latest(self.db, self.job_id),
-                                   draft=self.is_draft, unread_pages=unread)
+                                   draft=self.is_draft, unread_pages=unread,
+                                   signoff=lqa.latest_signoff(self.db, self.job_id))
         summary["release"] = {"verdict": release["verdict"], "label": release["label"],
                               "pass_percent": release["pass_percent"], "to_fix": len(release["to_fix"]),
                               "rendered_percent": coverage["percent"], "style": release["style"],
@@ -449,7 +450,19 @@ class Translator(PublishingStages):
                 f"- Tên: {brief.get('title', '')}\n- Chuyên ngành: {brief.get('specialty', '')}\n"
                 f"- Độc giả: {brief.get('audience', '')}\n- Tóm tắt: {brief.get('summary', '')}\n\n"
                 f"## HƯỚNG DẪN VĂN PHONG RIÊNG\n{brief.get('style_guide', '')}\n"
-                + (f"\n## QUY ƯỚC CỦA CHUYÊN NGÀNH ({self.domain})\n{notes}\n" if notes else ""))
+                + (f"\n## QUY ƯỚC CỦA CHUYÊN NGÀNH ({self.domain})\n{notes}\n" if notes else "")
+                + self._knowledge_text())
+
+    def _knowledge_text(self) -> str:
+        """Gói chuyên ngành + quy tắc học từ bản sửa của chuyên gia + văn phong mẫu (bản dịch người)."""
+        if getattr(self, "_knowledge", None) is None:
+            from . import learning
+            from .domains import prompt_text
+            parts = [prompt_text(self.domain)]
+            if not self.read_only:
+                parts += [learning.rules_prompt(self.db, self.domains), learning.exemplars(self.db, self.domains)]
+            self._knowledge = "".join(f"\n{p}\n" for p in parts if p)
+        return self._knowledge
 
     # ================================================================ units
     def _build_units(self, pages: list[PageInfo]) -> list[Unit]:
@@ -1249,6 +1262,8 @@ class Translator(PublishingStages):
 
 
 def job_id_for(pdf_hash: str, domain: str, lang: str = "en", tag: str = "") -> str:
+    from .domains import resolve
+    domain = resolve(domain)
     return f"{pdf_hash}_{domain}" + ("" if lang == "en" else f"_{lang}") + (f"__{tag}" if tag else "")
 
 

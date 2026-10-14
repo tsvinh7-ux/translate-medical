@@ -31,13 +31,14 @@ P = {
     "calibration": st.Page(pages.calibration_page, title="Hiệu chuẩn", icon="🎯", url_path="hieu-chuan"),
     "glossary": st.Page(pages.glossary_page, title="Kho thuật ngữ", icon="📚", url_path="thuat-ngu"),
     "tm": st.Page(pages.tm_page, title="Bộ nhớ dịch", icon="🧠", url_path="bo-nho-dich"),
+    "knowledge": st.Page(pages.knowledge_page, title="Chuyên ngành & văn phong", icon="🎓", url_path="chuyen-nganh"),
     "settings": st.Page(pages.settings_page, title="Cấu hình & hệ thống", icon="⚙️", url_path="cau-hinh"),
 }
 st.session_state["_pages"] = P
 nav = st.navigation({
     "Vận hành": [P["dashboard"], P["new"], P["queue"]],
     "Chất lượng": [P["analytics"], P["termbase"], P["review"], P["calibration"]],
-    "Dữ liệu": [P["glossary"], P["tm"]],
+    "Dữ liệu": [P["glossary"], P["tm"], P["knowledge"]],
     "Hệ thống": [P["settings"]],
 })
 nav.run()

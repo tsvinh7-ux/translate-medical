@@ -36,11 +36,13 @@
    2. Tải file Excel termbase, gửi chuyên gia kiểm tra.
    3. Nhập lại ở mục **Termbase dự án** và **Khoá**.
 3. **Dịch chính thức** cả cuốn với gói đã chọn. Bật "Dừng sau quét thuật ngữ…" nếu muốn chắc chắn termbase đã khoá trước.
-4. **Kiểm định:**
-   1. Mở mục **Duyệt & can thiệp** và xử lý các đoạn "CẦN XỬ LÝ".
-   2. Xuất **mẫu kiểm định** (khoảng 99 đoạn) gửi chuyên gia, rồi nhập lại kết quả.
-   3. Bấm **Dựng lại PDF & phiếu kiểm định**.
-5. Phiếu kiểm định ghi **PHÁT HÀNH ĐƯỢC** thì chuyển bản dịch cho bộ phận dàn trang.
+4. **Duyệt chuyên gia** (bắt buộc trước khi phát hành): vào mục **Duyệt & can thiệp** → tab *Duyệt toàn văn & ký phát hành*.
+   1. Xuất **gói duyệt song ngữ** (Excel) và gửi chuyên gia.
+   2. Chuyên gia đọc và ghi bản sửa / nhận định.
+   3. **Nhập lại** gói đã duyệt.
+   4. Chuyên gia **ký "Đồng ý phát hành"**.
+5. Hệ thống dựng lại PDF và phiếu kiểm định có chữ ký. Phiếu ghi **PHÁT HÀNH ĐƯỢC** thì chuyển cho bộ phận thiết kế.
+6. Sau vài cuốn của cùng chuyên ngành: vào mục **Chuyên ngành & văn phong** → *Phân tích & đề xuất quy tắc* để hệ thống học cách sửa của chuyên gia, rồi duyệt các quy tắc.
 
 ## D. Khi gặp sự cố
 

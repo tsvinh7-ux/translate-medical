@@ -1,0 +1,10 @@
+key: oncology
+name_vi: Ung thư học
+aliases: [cancer, ung_thu, onco]
+parents: [general_medicine]
+style: |
+  - Phân loại TNM, giai đoạn, độ mô học giữ nguyên ký hiệu; phác đồ hóa trị viết tắt (FOLFOX, R-CHOP) giữ nguyên.
+  - Tên dấu ấn sinh học, gen (HER2, EGFR, BRCA1, PD-L1) giữ nguyên.
+judge_focus: |
+  - Liều theo diện tích da (mg/m²), chu kỳ, số đợt, tiêu chí đáp ứng (RECIST), độc tính (CTCAE) và độ.
+terms: []
